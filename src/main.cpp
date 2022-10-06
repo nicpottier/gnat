@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <TFT_eSPI.h>
 
 // The build version comes from an environment variable. Use the VERSION
 // define wherever the version is needed.
