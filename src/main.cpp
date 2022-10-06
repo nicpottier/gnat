@@ -11,7 +11,7 @@ void setup()
 {
   delay(5000);
   Serial.begin(115200);
-  Serial.print("Version2: ");
+  Serial.print("Version: ");
   Serial.println(VERSION);
 }
 
