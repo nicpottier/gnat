@@ -4,3 +4,5 @@
 .vscode/launch.json
 .vscode/ipch
 .vscode/arduino.json
+.vscode/settings.json
+platformio-device-monitor*
