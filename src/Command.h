@@ -33,10 +33,9 @@ class TareScaleCommand {
   TareScaleCommand(){};
 
   bool execute(Devices *devices) {
-    Serial.println("EXECUTING TARE");
     auto s = devices->getScale();
     if (!s) return false;
-    Serial.println("EXECUTING TARE FOR REAL");
+    Serial.println("SENDING SCALE TARE");
     return s->tare();
   }
 };
@@ -46,10 +45,9 @@ class InitScaleCommand {
   InitScaleCommand(){};
 
   bool execute(Devices *devices) {
-    Serial.println("EXECUTING INIT");
     auto s = devices->getScale();
     if (!s) return false;
-    Serial.println("EXECUTING INIT FOR REAL");
+    Serial.println("SENDING SCALE INIT");
     return s->init();
   }
 };
@@ -59,9 +57,9 @@ class StopMachineCommand {
   StopMachineCommand(){};
 
   bool execute(Devices *devices) {
-    Serial.println("EXECUTING STOP");
     auto m = devices->getMachine();
     if (!m) return false;
+    Serial.println("SENDING MACHINE STOP");
     return m->stop();
   }
 };
@@ -71,9 +69,9 @@ class SleepMachineCommand {
   SleepMachineCommand(){};
 
   bool execute(Devices *devices) {
-    Serial.println("EXECUTING SLEEP");
     auto m = devices->getMachine();
     if (!m) return false;
+    Serial.println("SENDING MACHINE SLEEP");
     return m->sleep();
   }
 };

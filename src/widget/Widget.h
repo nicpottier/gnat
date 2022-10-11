@@ -1,7 +1,12 @@
 #pragma once
 
 #include <Data.h>
+
+#ifdef M5_STICK
 #include <M5Display.h>
+#else
+#include <TFT_eSPI.h>
+#endif
 
 namespace widget {
 class Widget {

@@ -223,8 +223,6 @@ class MachineStateUpdate {
   bool apply(Context* ctx) {
     ctx->machineState = m_state;
     ctx->machineSubstate = m_subState;
-
-    Serial.printf("MACHINE STATE APPLIED: %d[%d]\n", m_state, m_subState);
     return true;
   }
 

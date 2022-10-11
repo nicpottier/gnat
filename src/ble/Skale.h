@@ -25,20 +25,16 @@ class Skale : public Device, public Scale {
     }
   }
 
-  bool tare() {
-    Serial.println("TARE!?!");
+  bool tare() override {
     if (!m_cmdCharacteristic) {
-      Serial.println("NO CHAR, NOT TARING");
       return false;
     }
 
-    Serial.println("TARING SCALE");
     return m_cmdCharacteristic->writeValue(SKALE_TARE);
   }
 
   bool init() {
     if (!m_cmdCharacteristic) {
-      Serial.println("NO CHAR, NOT INITING");
       return false;
     }
 

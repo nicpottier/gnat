@@ -1,7 +1,5 @@
 #pragma once
 
-#include <M5Display.h>
-
 // note these are 16 bit RGB565
 // see: https://chrishewett.com/blog/true-rgb565-colour-picker/
 #define COLOR_BG 0x0000

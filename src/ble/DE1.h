@@ -22,7 +22,6 @@ class DE1 : public Device, public Machine {
     if (!m_cmdCharacteristic) {
       return false;
     }
-    Serial.println("SENDING STOP TO DE1");
     return m_cmdCharacteristic->writeValue(STATE_IDLE);
   }
 
@@ -30,14 +29,12 @@ class DE1 : public Device, public Machine {
     if (!m_cmdCharacteristic) {
       return false;
     }
-    Serial.println("SENDING SLEEP TO DE1");
     return m_cmdCharacteristic->writeValue(STATE_SLEEP);
   }
 
   void stateUpdate(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* d, size_t length, bool isNotify) {
     int state = d[0];
     int subState = d[1];
-    Serial.printf("[%d] STATE UPDATE: %d [%d]\n", xPortGetCoreID(), state, subState);
     queueUpdate(data::DataUpdate::newMachineStateUpdate((MachineState)state, subState));
   }
 

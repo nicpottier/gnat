@@ -1,7 +1,13 @@
 #include <Arduino.h>
 #include <Command.h>
 #include <Data.h>
+
+#ifdef M5_STICK
 #include <M5StickCPlus.h>
+#else
+#include <TFT_eSPI.h>
+#endif
+
 #include <NimBLEDevice.h>
 #include <ble/DE1.h>
 #include <ble/FoundDevice.h>
@@ -9,6 +15,9 @@
 #include <widget/MachineStatus.h>
 #include <widget/ScaleStatus.h>
 #include <widget/ShotGraph.h>
+
+// the tft we draw to
+TFT_eSPI tft = TFT_eSPI(135, 240);
 
 // The build version comes from an environment variable. Use the VERSION
 // define wherever the version is needed.
@@ -95,11 +104,13 @@ void bleLoop(void* parameters) {
       if (device->connect(client)) {
         switch (device->getType()) {
           case DeviceType::MACHINE:
-            // devices->setMachine(reinterpret_cast<ble::Machine*>(device));
+            // TODO: this doesn't work, I don't understand c++
+            // devices->setMachine((ble::Machine*)device);
             devices->setMachine(de1);
             break;
           case DeviceType::SCALE:
-            // devices->setScale(reinterpret_cast<ble::Scale*>(device));
+            // TODO: this doesn't work, I don't understand c++
+            // devices->setScale((ble::Scale*)device);
             devices->setScale(skale);
             break;
           default:
@@ -138,7 +149,9 @@ void bleLoop(void* parameters) {
 }
 
 void setup() {
+#ifdef M5_STICK
   M5.begin();
+#endif
 
   Serial.begin(115200);
   Serial.printf("[%d] Setup - Version: %s\n", xPortGetCoreID(), VERSION);
@@ -208,19 +221,29 @@ void setup() {
 
   xTaskCreatePinnedToCore(bleLoop, "BLE Loop", 4096, NULL, 1, NULL, 0);
 
-  // ledcSetup(pwmLedChannelTFT, pwmFreq, pwmResolution);
-  // ledcAttachPin(TFT_BL, pwmLedChannelTFT);
-  // ledcWrite(pwmLedChannelTFT, 100);
+#ifdef M5_STICK
+  tft = M5.Lcd;
+#else
+  ledcSetup(pwmLedChannelTFT, pwmFreq, pwmResolution);
+  ledcAttachPin(TFT_BL, pwmLedChannelTFT);
+  ledcWrite(pwmLedChannelTFT, 100);
 
-  M5.Lcd.setRotation(3);
-  M5.Lcd.fillScreen(COLOR_BG);
+  tft.init();
+#endif
 
-  M5.Lcd.fillRect(0, 0, 240, 35, COLOR_DASH_BG);
+  tft.setRotation(3);
+  tft.setSwapBytes(true);
+  tft.fillScreen(COLOR_BG);
+  tft.fillRect(0, 0, 240, 35, COLOR_DASH_BG);
 }
 
 unsigned long tickID = 0;
 unsigned long lastTick = 0;
 unsigned long idleStart = 0;
+
+unsigned long lastTare = 0;
+unsigned long lastSleep = 0;
+unsigned long lastStop = 0;
 
 auto ctx = data::Context{};
 
@@ -229,6 +252,9 @@ const unsigned long TICK_TARGET = 20;
 
 // how long in millis before we put the machine to sleep
 const unsigned long SLEEP_TIMEOUT = 1000 * 60 * 15;
+
+// how many ticks before we try a command again, default 2 seconds
+const unsigned long CMD_TIMEOUT = 2000 / TICK_TARGET;
 
 void loop() {
   // container for the commands we pop off our queue
@@ -250,33 +276,43 @@ void loop() {
       for (auto widget : widgets) {
         auto repaint = widget->tick(ctx, tickID, millis());
         if (repaint) {
-          widget->paint(M5.Lcd);
+          widget->paint(tft);
         }
       }
 
       // we just went to sleep, turn off the screen
       if (ctx.machineState == MachineState::sleep && lastState != ctx.machineState) {
+#ifdef M5_STICK
         M5.Axp.ScreenSwitch(false);
+#endif
       }
 
       // just left sleep, turn on screen
       if ((lastState == MachineState::sleep || lastState == MachineState::unknown) &&
           ctx.machineState != MachineState::sleep) {
+#ifdef M5_STICK
         M5.Axp.ScreenSwitch(true);
+#endif
         idleStart = millis();
       }
 
       // if we just switched into brewing espresso, tare our scale
       if ((ctx.machineState != lastState && ctx.machineState == MachineState::espresso) ||
           (ctx.machineState == MachineState::espresso && lastSubstate < 4 && ctx.machineSubstate >= 4)) {
-        auto tare = cmd::CommandRequest::newTareScaleCommand();
-        xQueueSend(cmdQ, &tare, 10);
+        if (tickID - lastTare > CMD_TIMEOUT) {
+          auto tare = cmd::CommandRequest::newTareScaleCommand();
+          xQueueSend(cmdQ, &tare, 10);
+          lastTare = tickID;
+        }
       }
 
       // if we are brewing and we are over 36grams, stop
       if (ctx.machineState == MachineState::espresso && ctx.machineSubstate == 5 && ctx.currentWeight > 35) {
-        auto stop = cmd::CommandRequest::newStopMachineCommand();
-        xQueueSend(cmdQ, &stop, 10);
+        if (tickID - lastStop > CMD_TIMEOUT) {
+          auto stop = cmd::CommandRequest::newStopMachineCommand();
+          xQueueSend(cmdQ, &stop, 10);
+          lastStop = tickID;
+        }
       }
 
       // switching into idle, reset our timeout
@@ -286,8 +322,11 @@ void loop() {
 
       // if we haven't brewed anything for a bit, sleep
       if (ctx.machineState == MachineState::idle && millis() - idleStart > SLEEP_TIMEOUT) {
-        auto sleep = cmd::CommandRequest::newSleepMachineCommand();
-        xQueueSend(cmdQ, &sleep, 10);
+        if (tickID - lastSleep > CMD_TIMEOUT) {
+          auto sleep = cmd::CommandRequest::newSleepMachineCommand();
+          xQueueSend(cmdQ, &sleep, 10);
+          lastSleep = tickID;
+        }
       }
 
       lastState = ctx.machineState;
