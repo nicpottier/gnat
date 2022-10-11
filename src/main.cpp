@@ -55,6 +55,8 @@ class BLEAdCallback : public NimBLEAdvertisedDeviceCallbacks {
         if (xQueueSend(foundDeviceQ, &found, 10) != pdTRUE) {
           Serial.printf("[%d][BLE] ERROR: Could not add found address to queue: %s\n", xPortGetCoreID(),
                         d->getAddress().toString().c_str());
+        } else {
+          Serial.printf("[BLE] Added %s to queue to connect\n", d->getAddress().toString().c_str());
         }
       }
     }
@@ -73,18 +75,13 @@ void bleLoop(void* parameters) {
 
   while (1) {
     // do we have anything to connect to?
-    auto lastDeviceAddress = NimBLEAddress{};
     while (xQueueReceive(foundDeviceQ, (void*)&d, 0) == pdTRUE) {
-      // collapse repeats
-      if (d.getAddress() == lastDeviceAddress) {
-        continue;
-      }
-      lastDeviceAddress = d.getAddress();
-
       auto device = d.getDevice();
 
       // if our device is already connected, move on
       if (!device->isDisconnected()) {
+        Serial.printf("[BLE] Ignoring connection request for %s, not disconnected\n",
+                      d.getAddress().toString().c_str());
         continue;
       }
 
@@ -100,11 +97,14 @@ void bleLoop(void* parameters) {
       // Set how long we are willing to wait for the connection to complete (seconds), default is 30.
       client->setConnectTimeout(5);
 
+      Serial.printf("[BLE] Connecting to %s\n", d.getAddress().toString().c_str());
+
       // connect, save our device type if we succeed
       if (device->connect(client)) {
         device->selfRegister(devices);
       } else {
-        Serial.printf("[BLE] Failed to connect client for %s\n", d.getDevice()->getName().c_str());
+        Serial.printf("[BLE] Failed to connect client for %s:%d\n", device->getName().c_str(),
+                      device->isDisconnected());
 
         // failed to connect, delete the client, we'll try again later
         NimBLEDevice::deleteClient(client);
@@ -126,7 +126,7 @@ void bleLoop(void* parameters) {
     }
 
     // check whether our scan needs restarting
-    if (pBLEScan->isScanning() == false) {
+    if (!pBLEScan->isScanning()) {
       pBLEScan->start(0, nullptr, false);
     }
 
