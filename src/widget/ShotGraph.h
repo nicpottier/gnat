@@ -24,14 +24,15 @@ class ShotGraph : public Widget {
       changed = true;
     }
 
-    if (ctx.machineState != m_state) {
-      if (ctx.machineState == MachineState::espresso) {
+    if (ctx.machineState == MachineState::espresso && ctx.machineSubstate != m_substate) {
+      if (m_substate < MachineSubstate::preinfusion && ctx.machineSubstate >= MachineSubstate::preinfusion) {
         m_clear = true;
-        changed = true;
         m_frame = 0;
+        changed = true;
       }
-      m_state = ctx.machineState;
     }
+    m_state = ctx.machineState;
+    m_substate = ctx.machineSubstate;
 
     if (ctx.lastSample.sampleTime != m_lastSample) {
       m_frame = (m_frame + 1) % 240;
@@ -87,11 +88,17 @@ class ShotGraph : public Widget {
  private:
   int m_x;
   int m_y;
+
   BLEState m_bleState = BLEState::UNKNOWN;
+
   MachineState m_state = MachineState::unknown;
+  MachineSubstate m_substate = MachineSubstate::unknown;
+
   int m_lastSample = 0;
   int m_frame = 0;
+
   bool m_clear = false;
+
   ShotFrame m_frames[240];
 };
 

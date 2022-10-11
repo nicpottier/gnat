@@ -101,6 +101,7 @@ class Skale : public Device, public Scale {
     return true;
   }
 
+  void selfRegister(Devices* devices) { devices->setScale(this); }
   bool shouldConnect(NimBLEAdvertisedDevice* d) { return (d->getName() == SKALE_NAME); }
   const std::string getName() { return SKALE_NAME; }
 

@@ -18,32 +18,32 @@ enum class BLEState : uint8_t {
 };
 
 enum class MachineState {
-  sleep,            // 0 Everything is off
-  going_to_sleep,   // 1 Going to sleep
-  idle,             // 2 Heaters are controlled, tank water will be heated if required.
-  busy,             // 3 Firmware is doing something you can't interrupt (eg. cooling down water heater after a shot,
-                    // calibrating sensors on startup).
-  espresso,         // 4 Making espresso
-  steam,            // 5 Making steam
-  hot_water,        // 6 Making hot water
-  short_cal,        // 7 Running a short calibration
-  self_test,        // 8 Checking as much as possible within the firmware. Probably only used during manufacture or
-                    // repair.
-  long_cal,         // 9 Long and involved calibration, possibly involving user interaction. (See substates below, for
-                    // cases like that).
-  descale,          // A Descale the whole bang-tooty
-  fatal_error,      // B Something has gone horribly wrong
-  init,             // C Machine has not been run yet
-  no_request,       // D State for T_RequestedState. Means nothing is specifically requested
-  skip_to_next,     // E In Espresso, skip to next frame. Others, go to Idle if possible
-  hot_water_rinse,  // F Produce hot water at whatever temperature is available
-  steam_rinse,      // 10 Produce a blast of steam
-  refill,           // 11 Attempting, or needs, a refill.
-  clean,            // 12 Clean group head
-  in_boot_loader,   // 13 The main firmware has not run for some reason. Bootloader is active.
-  air_purge,        // 14 Air purge.
-  sched_idle,       // 15 Scheduled wake up idle state
-  unknown,          // 16, unknown (gnat specific)
+  sleep = 0,           // 0 Everything is off
+  going_to_sleep = 1,  // 1 Going to sleep
+  idle = 2,            // 2 Heaters are controlled, tank water will be heated if required.
+  busy = 3,            // 3 Firmware is doing something you can't interrupt (eg. cooling down water heater after a shot,
+                       // calibrating sensors on startup).
+  espresso = 4,        // 4 Making espresso
+  steam = 5,           // 5 Making steam
+  hot_water = 6,       // 6 Making hot water
+  short_cal = 7,       // 7 Running a short calibration
+  self_test = 8,       // 8 Checking as much as possible within the firmware. Probably only used during manufacture or
+                       // repair.
+  long_cal = 9,       // 9 Long and involved calibration, possibly involving user interaction. (See substates below, for
+                      // cases like that).
+  descale = 10,       // A Descale the whole bang-tooty
+  fatal_error = 11,   // B Something has gone horribly wrong
+  init = 12,          // C Machine has not been run yet
+  no_request = 13,    // D State for T_RequestedState. Means nothing is specifically requested
+  skip_to_next = 14,  // E In Espresso, skip to next frame. Others, go to Idle if possible
+  hot_water_rinse = 15,  // F Produce hot water at whatever temperature is available
+  steam_rinse = 16,      // 10 Produce a blast of steam
+  refill = 17,           // 11 Attempting, or needs, a refill.
+  clean = 18,            // 12 Clean group head
+  in_boot_loader = 19,   // 13 The main firmware has not run for some reason. Bootloader is active.
+  air_purge = 20,        // 14 Air purge.
+  sched_idle = 21,       // 15 Scheduled wake up idle state
+  unknown = 255,         // 255, unknown (gnat specific)
 };
 
 const char* STATES[] = {
@@ -74,47 +74,47 @@ const char* STATES[] = {
     "sched_idle",       // 15 Scheduled wake up idle state
 };
 
-/*
-    - "starting"
-    0 "ready"
-    1 "heating"
-    2 "final heating"
-    3 "stabilising"
-    4 "preinfusion"
-    5 "pouring"
-    6 "ending"
-    7 "Steaming"
-    8 "DescaleInit"
-    9 "DescaleFillGroup"
-    10 "DescaleReturn"
-    11 "DescaleGroup"
-    12 "DescaleSteam"
-    13 "CleanInit"
-    14 "CleanFillGroup"
-    15 "CleanSoak"
-    16 "CleanGroup"
-    17 "refill"
-    18 "PausedSteam"
-    19 "UserNotPresent"
-    20 "puffing"
-    200 "Error_NaN"
-    201 "Error_Inf"
-    202 "Error_Generic"
-    203 "Error_ACC"
-    204 "Error_TSensor"
-    205 "Error_PSensor"
-    206 "Error_WLevel"
-    207 "Error_DIP"
-    208 "Error_Assertion"
-    209 "Error_Unsafe"
-    210 "Error_InvalidParm"
-    211 "Error_Flash"
-    212 "Error_OOM"
-    213 "Error_Deadline"
-    214 "Error_HiCurrent"
-    215 "Error_LoCurrent"
-    216 "Error_BootFill"
-    */
+enum class MachineSubstate {
+  ready = 0,
+  heating = 1,
+  final_heating = 2,
+  stabilising = 3,
+  preinfusion = 4,
+  pouring = 5,
+  ending = 6,
+  Steaming = 7,
+  DescaleInit = 8,
+  DescaleFillGroup = 9,
+  DescaleReturn = 10,
+  DescaleGroup = 11,
+  DescaleSteam = 12,
+  CleanInit = 13,
+  CleanFillGroup = 14,
+  CleanSoak = 15,
+  CleanGroup = 16,
+  refill = 17,
+  PausedSteam = 18,
+  UserNotPresent = 19,
+  puffing = 20,
+  Error_NaN = 200,
+  Error_Inf = 201,
+  Error_Generic = 202,
+  Error_ACC = 203,
+  Error_TSensor = 204,
+  Error_PSensor = 205,
+  Error_WLevel = 206,
+  Error_DIP = 207,
+  Error_Assertion = 208,
+  Error_Unsafe = 209,
+  Error_InvalidParm = 210,
+  Error_Flash = 211,
+  Error_OOM = 212,
+  Error_Deadline = 213,
+  Error_HiCurrent = 214,
+  Error_LoCurrent = 215,
+  Error_BootFill = 216,
+  unknown = 255,  // 255, unknown (gnat specific)
+};
 
 namespace data {
 class Sample {
@@ -168,9 +168,8 @@ class Context {
   Sample lastSample{};
   double currentWeight = 0;
 
-  // TODO: should be reading this initial state from the machine
   MachineState machineState = MachineState::unknown;
-  int machineSubstate = 0;
+  MachineSubstate machineSubstate = MachineSubstate::unknown;
 };
 
 class BLEStateUpdate {
@@ -217,18 +216,19 @@ class SampleUpdate {
 
 class MachineStateUpdate {
  public:
-  MachineStateUpdate() : m_state{MachineState::idle}, m_subState{0} {};
-  MachineStateUpdate(MachineState state, int subState) : m_state{state}, m_subState{subState} {};
+  MachineStateUpdate() : m_state{MachineState::unknown}, m_substate{MachineSubstate::unknown} {};
+  MachineStateUpdate(MachineState state, MachineSubstate substate) : m_state{state}, m_substate{substate} {};
 
   bool apply(Context* ctx) {
     ctx->machineState = m_state;
-    ctx->machineSubstate = m_subState;
+    ctx->machineSubstate = m_substate;
+    Serial.printf("APPLIED STATE UPDATE: %d [%d]\n", m_state, m_substate);
     return true;
   }
 
  private:
   MachineState m_state;
-  int m_subState;
+  MachineSubstate m_substate;
 };
 
 class DataUpdate {
@@ -268,7 +268,7 @@ class DataUpdate {
     return u;
   }
 
-  static DataUpdate newMachineStateUpdate(MachineState state, int subState) {
+  static DataUpdate newMachineStateUpdate(MachineState state, MachineSubstate subState) {
     auto u = DataUpdate{UpdateType::MACHINE_STATE_UPDATE};
     u.m_machineStateUpdate = MachineStateUpdate{state, subState};
     return u;

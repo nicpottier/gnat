@@ -35,7 +35,7 @@ class DE1 : public Device, public Machine {
   void stateUpdate(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* d, size_t length, bool isNotify) {
     int state = d[0];
     int subState = d[1];
-    queueUpdate(data::DataUpdate::newMachineStateUpdate((MachineState)state, subState));
+    queueUpdate(data::DataUpdate::newMachineStateUpdate((MachineState)state, (MachineSubstate)subState));
   }
 
   void sampleUpdate(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* d, size_t length, bool isNotify) {
@@ -111,7 +111,7 @@ class DE1 : public Device, public Machine {
             auto value = ch->readValue();
             int state = value.data()[0];
             int subState = value.data()[1];
-            queueUpdate(data::DataUpdate::newMachineStateUpdate((MachineState)state, subState));
+            queueUpdate(data::DataUpdate::newMachineStateUpdate((MachineState)state, (MachineSubstate)subState));
           }
           // sample update
           if (ch->getUUID().toString() == SAMPLE_UUID) {
@@ -134,6 +134,8 @@ class DE1 : public Device, public Machine {
   }
 
   void teardownConnection(NimBLEClient* c) {}
+
+  void selfRegister(Devices* devices) { devices->setMachine(this); }
 
   bool shouldConnect(NimBLEAdvertisedDevice* d) {
     // name returned by BLE is null terminated (in a std::string!) so fallback to strcmp

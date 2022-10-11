@@ -69,7 +69,7 @@ void bleLoop(void* parameters) {
 
   auto d = ble::FoundDevice{};
   auto c = cmd::CommandRequest{cmd::CommandType::EMPTY};
-  auto devices = new cmd::Devices{};
+  auto devices = new ble::Devices{};
 
   while (1) {
     // do we have anything to connect to?
@@ -102,20 +102,7 @@ void bleLoop(void* parameters) {
 
       // connect, save our device type if we succeed
       if (device->connect(client)) {
-        switch (device->getType()) {
-          case DeviceType::MACHINE:
-            // TODO: this doesn't work, I don't understand c++
-            // devices->setMachine((ble::Machine*)device);
-            devices->setMachine(de1);
-            break;
-          case DeviceType::SCALE:
-            // TODO: this doesn't work, I don't understand c++
-            // devices->setScale((ble::Scale*)device);
-            devices->setScale(skale);
-            break;
-          default:
-            Serial.printf("UNKNOWN DEVICE TYPE: %d\n", device->getType());
-        }
+        device->selfRegister(devices);
       } else {
         Serial.printf("[BLE] Failed to connect client for %s\n", d.getDevice()->getName().c_str());
 
@@ -263,7 +250,7 @@ void loop() {
   idleStart = millis();
 
   auto lastState = MachineState::unknown;
-  auto lastSubstate = 0;
+  auto lastSubstate = MachineSubstate::unknown;
 
   while (true) {
     while (xQueueReceive(updateQ, (void*)&d, 0) == pdTRUE) {
@@ -298,7 +285,8 @@ void loop() {
 
       // if we just switched into brewing espresso, tare our scale
       if ((ctx.machineState != lastState && ctx.machineState == MachineState::espresso) ||
-          (ctx.machineState == MachineState::espresso && lastSubstate < 4 && ctx.machineSubstate >= 4)) {
+          (ctx.machineState == MachineState::espresso && lastSubstate < MachineSubstate::preinfusion &&
+           ctx.machineSubstate >= MachineSubstate::preinfusion)) {
         if (tickID - lastTare > CMD_TIMEOUT) {
           auto tare = cmd::CommandRequest::newTareScaleCommand();
           xQueueSend(cmdQ, &tare, 10);
@@ -307,7 +295,8 @@ void loop() {
       }
 
       // if we are brewing and we are over 36grams, stop
-      if (ctx.machineState == MachineState::espresso && ctx.machineSubstate == 5 && ctx.currentWeight > 35) {
+      if (ctx.machineState == MachineState::espresso && ctx.machineSubstate == MachineSubstate::pouring &&
+          ctx.currentWeight > 35) {
         if (tickID - lastStop > CMD_TIMEOUT) {
           auto stop = cmd::CommandRequest::newStopMachineCommand();
           xQueueSend(cmdQ, &stop, 10);

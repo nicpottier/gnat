@@ -3,6 +3,7 @@
 #include <Command.h>
 #include <Data.h>
 #include <NimBLEDevice.h>
+#include <ble/Devices.h>
 
 namespace ble {
 
@@ -14,12 +15,16 @@ class Device : public NimBLEClientCallbacks {
   virtual void teardownConnection(NimBLEClient* c) = 0;
   virtual bool shouldConnect(NimBLEAdvertisedDevice* d) = 0;
   virtual const std::string getName() = 0;
+  virtual void selfRegister(Devices* d) = 0;
 
   void onConnect(NimBLEClient* c) {
     Serial.printf("[%d][%s] connected to %s\n", xPortGetCoreID(), getName().c_str(),
                   c->getPeerAddress().toString().c_str());
     if (!setupConnection(c)) {
       Serial.printf("[%d][%s] connection setup failed, disconnecting\n", xPortGetCoreID(), getName().c_str());
+      setState(BLEState::DISCONNECTED);
+    } else {
+      setState(BLEState::CONNECTED);
     }
   };
 
@@ -38,7 +43,6 @@ class Device : public NimBLEClientCallbacks {
     c->setClientCallbacks(this, false);
     setState(BLEState::CONNECTING);
     if (c->connect() && c->isConnected()) {
-      setState(BLEState::CONNECTED);
       m_client = c;
       return true;
     } else {

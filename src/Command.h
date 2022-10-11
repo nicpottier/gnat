@@ -1,7 +1,6 @@
 #pragma once
 
-#include <ble/Machine.h>
-#include <ble/Scale.h>
+#include <ble/Devices.h>
 
 namespace cmd {
 
@@ -15,24 +14,11 @@ enum class CommandType {
   MACHINE_STOP,
 };
 
-class Devices {
- public:
-  ble::Scale *getScale() { return m_scale; }
-  ble::Machine *getMachine() { return m_machine; }
-
-  void setScale(ble::Scale *s) { m_scale = s; }
-  void setMachine(ble::Machine *m) { m_machine = m; }
-
- private:
-  ble::Machine *m_machine = nullptr;
-  ble::Scale *m_scale = nullptr;
-};
-
 class TareScaleCommand {
  public:
   TareScaleCommand(){};
 
-  bool execute(Devices *devices) {
+  bool execute(ble::Devices *devices) {
     auto s = devices->getScale();
     if (!s) return false;
     Serial.println("SENDING SCALE TARE");
@@ -44,7 +30,7 @@ class InitScaleCommand {
  public:
   InitScaleCommand(){};
 
-  bool execute(Devices *devices) {
+  bool execute(ble::Devices *devices) {
     auto s = devices->getScale();
     if (!s) return false;
     Serial.println("SENDING SCALE INIT");
@@ -56,7 +42,7 @@ class StopMachineCommand {
  public:
   StopMachineCommand(){};
 
-  bool execute(Devices *devices) {
+  bool execute(ble::Devices *devices) {
     auto m = devices->getMachine();
     if (!m) return false;
     Serial.println("SENDING MACHINE STOP");
@@ -68,7 +54,7 @@ class SleepMachineCommand {
  public:
   SleepMachineCommand(){};
 
-  bool execute(Devices *devices) {
+  bool execute(ble::Devices *devices) {
     auto m = devices->getMachine();
     if (!m) return false;
     Serial.println("SENDING MACHINE SLEEP");
@@ -80,7 +66,7 @@ class CommandRequest {
  public:
   CommandRequest(CommandType type) : m_type{type} {}
 
-  bool execute(Devices *devices) {
+  bool execute(ble::Devices *devices) {
     switch (m_type) {
       case CommandType::SCALE_INIT:
         return m_initScale.execute(devices);
