@@ -15,6 +15,7 @@
 #include <widget/MachineStatus.h>
 #include <widget/ScaleStatus.h>
 #include <widget/ShotGraph.h>
+#include <widget/ShotTimer.h>
 
 // the tft we draw to
 TFT_eSPI tft = TFT_eSPI(135, 240);
@@ -27,7 +28,7 @@ TFT_eSPI tft = TFT_eSPI(135, 240);
 
 static NimBLEScan* pBLEScan;
 static ble::Device* devices[2];
-static widget::Widget* widgets[3];
+static widget::Widget* widgets[4];
 
 static QueueHandle_t foundDeviceQ;
 
@@ -152,9 +153,10 @@ void setup() {
   de1 = new ble::DE1{updateQ, cmdQ};
   devices[1] = de1;
 
-  widgets[0] = new widget::ScaleStatus{5, 7};
-  widgets[1] = new widget::MachineStatus{120, 7};
-  widgets[2] = new widget::ShotGraph{0, 35};
+  widgets[0] = new widget::ScaleStatus{5, 7, 80};
+  widgets[1] = new widget::MachineStatus{85, 7, 80};
+  widgets[2] = new widget::ShotTimer{165, 7, 80};
+  widgets[3] = new widget::ShotGraph{5, 40, 230, 90};
 
   /** *Optional* Sets the filtering mode used by the scanner in the BLE
    * controller.
@@ -209,6 +211,7 @@ void setup() {
   xTaskCreatePinnedToCore(bleLoop, "BLE Loop", 4096, NULL, 1, NULL, 0);
 
 #ifdef M5_STICK
+  M5.Axp.ScreenBreath(7);
   tft = M5.Lcd;
 #else
   ledcSetup(pwmLedChannelTFT, pwmFreq, pwmResolution);
@@ -221,7 +224,12 @@ void setup() {
   tft.setRotation(3);
   tft.setSwapBytes(true);
   tft.fillScreen(COLOR_BG);
-  tft.fillRect(0, 0, 240, 35, COLOR_DASH_BG);
+  tft.fillRoundRect(0, 0, 240, 35, 10, COLOR_DASH_BG);
+  tft.fillRect(0, 10, 240, 25, COLOR_DASH_BG);
+  tft.drawRect(0, 0, 240, 35, COLOR_DASH_LINE);
+  tft.fillRoundRect(0, 35, 240, 100, 10, COLOR_DASH_BG);
+  tft.fillRect(0, 35, 240, 50, COLOR_DASH_BG);
+  tft.fillRoundRect(3, 38, 234, 94, 10, COLOR_BG);
 }
 
 unsigned long tickID = 0;

@@ -11,23 +11,24 @@ class ShotFrame {
   double groupPressure = 0;
   double headTemp = 0;
   double groupFlow = 0;
+  BLEState scaleBLEState = BLEState::UNKNOWN;
 };
 
 class ShotGraph : public Widget {
  public:
-  ShotGraph(int x, int y) : m_x{x}, m_y{y} {};
+  ShotGraph(int x, int y, int width, int height) : m_x{x}, m_y{y}, m_width{width}, m_height{height} {};
 
-  virtual bool tick(data::Context ctx, long tickID, long millis) {
+  virtual bool tick(data::Context ctx, unsigned long tickID, unsigned long millis) override {
     auto changed = false;
-    if (ctx.getMachineBLEState() == BLEState::CONNECTED && ctx.getMachineBLEState() != m_bleState) {
-      m_bleState = ctx.getMachineBLEState();
+    if (ctx.getMachineBLEState() == BLEState::CONNECTED && ctx.getMachineBLEState() != m_machineBLEState) {
+      m_machineBLEState = ctx.getMachineBLEState();
       changed = true;
     }
 
     if (ctx.machineState == MachineState::espresso && ctx.machineSubstate != m_substate) {
       if (m_substate < MachineSubstate::preinfusion && ctx.machineSubstate >= MachineSubstate::preinfusion) {
         m_clear = true;
-        m_frame = 0;
+        m_frame = 10;
         changed = true;
       }
     }
@@ -35,13 +36,14 @@ class ShotGraph : public Widget {
     m_substate = ctx.machineSubstate;
 
     if (ctx.lastSample.sampleTime != m_lastSample) {
-      m_frame = (m_frame + 1) % 240;
+      m_frame = (m_frame + 1) % (m_width);
       auto sample = ctx.lastSample;
       m_frames[m_frame].weight = ctx.currentWeight;
       m_frames[m_frame].groupPressure = sample.groupPressure;
       m_frames[m_frame].headTemp = sample.headTemp;
       m_frames[m_frame].groupFlow = sample.groupFlow;
       m_frames[m_frame].weight = ctx.currentWeight;
+      m_frames[m_frame].scaleBLEState = ctx.getScaleBLEState();
       m_lastSample = ctx.lastSample.sampleTime;
       changed = true;
     }
@@ -49,47 +51,66 @@ class ShotGraph : public Widget {
     return changed;
   }
 
-  virtual void paint(TFT_eSPI &tft) {
+  void plotValue(TFT_eSPI &tft, uint32_t color, double value, int min, int max, int offset) {
+    int x = (m_frame % m_width) + m_x;
+
+    // figure out our y
+    auto scaled = (value - min) / (double)(max - min) * (m_height - offset - 2);
+    int y = m_y + m_height - scaled - offset;
+
+    // don't draw out of bounds
+    if (y - 2 < m_y || y - 2 > m_y + m_height) {
+      return;
+    }
+    tft.drawLine(x, y, x, y - 2, color);
+  }
+
+  virtual void paint(TFT_eSPI &tft) override {
     // clear our graph if appropriate
     if (m_clear) {
-      tft.fillRect(m_x, m_y, 240, 100, COLOR_BG);
+      tft.fillRoundRect(m_x - 1, m_y - 1, m_width + 2, m_height + 2, 10, COLOR_BG);
       m_clear = false;
     }
 
     // draw our current frame
-    int x = m_x + m_frame;
+    int x = (m_frame % m_width) + m_x;
 
     // clear ahead of us
-    tft.drawRect(x, m_y, 20, 100, COLOR_BG);
+    tft.drawRect(x, m_y, min(x + 20, m_x + m_width) - x, m_height, COLOR_BG);
 
     // if we are near the edge, clear there as well
-    if (x + 20 > 240) {
-      auto wrap = (x + 20) % 240;
-      tft.drawRect(0, m_y, wrap, 100, COLOR_BG);
+    if (x + 20 > m_width) {
+      auto wrap = (x + 20) % m_width;
+      tft.drawRect(m_x, m_y, wrap, m_height, COLOR_BG);
     }
 
-    // draw our temp
-    int y = m_y + 100 - ((m_frames[m_frame].headTemp - 85) * 10) - 30;
-    tft.drawLine(x, y, x, y + 2, COLOR_ERROR);
+    // draw our sample data if the machine is connected
+    if (m_machineBLEState == BLEState::CONNECTED) {
+      // draw our flow
+      plotValue(tft, COLOR_WATER, m_frames[m_frame].groupFlow, 0, 10, 45);
 
-    // draw our flow
-    y = m_y + 100 - m_frames[m_frame].groupFlow * 4 - 30;
-    tft.drawLine(x, y, x, y + 2, COLOR_WATER);
+      // draw our pressure
+      plotValue(tft, COLOR_PRESSURE, m_frames[m_frame].groupPressure, 0, 12, 29);
+    }
 
-    // draw our pressure
-    y = m_y + 100 - m_frames[m_frame].groupPressure * 2 - 50;
-    tft.drawLine(x, y, x, y + 2, COLOR_PRESSURE);
+    // draw our weight if we have a scale connected
+    if (m_frames[m_frame].scaleBLEState == BLEState::CONNECTED) {
+      plotValue(tft, COLOR_WEIGHT, m_frames[m_frame].weight, 0, 50, 15);
+    }
 
-    // draw our weight
-    y = m_y + 100 - m_frames[m_frame].weight * 2 - 8;
-    tft.drawLine(x, y, x, y + 2, COLOR_WEIGHT);
+    // draw our border
+    tft.drawRoundRect(m_x, m_y, m_width, m_height, 10, COLOR_DASH_LINE);
+    tft.drawRoundRect(m_x - 1, m_y - 1, m_width + 2, m_height + 2, 10, COLOR_DASH_BG);
   }
 
  private:
   int m_x;
   int m_y;
+  int m_width;
+  int m_height;
 
-  BLEState m_bleState = BLEState::UNKNOWN;
+  BLEState m_machineBLEState = BLEState::UNKNOWN;
+  BLEState m_scaleBLEState = BLEState::UNKNOWN;
 
   MachineState m_state = MachineState::unknown;
   MachineSubstate m_substate = MachineSubstate::unknown;

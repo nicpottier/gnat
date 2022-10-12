@@ -34,7 +34,6 @@ class Device : public NimBLEClientCallbacks {
     m_client = nullptr;
     teardownConnection(c);
     setState(BLEState::DISCONNECTED);
-    NimBLEDevice::deleteClient(c);
   };
 
   bool isDisconnected() { return (m_state == BLEState::DISCONNECTED || !m_client || !m_client->isConnected()); }

@@ -6,9 +6,9 @@
 namespace widget {
 class MachineStatus : public Widget {
  public:
-  MachineStatus(int x, int y) : m_x{x}, m_y{y} {};
+  MachineStatus(int x, int y, int width) : m_x{x}, m_y{y}, m_width{width} {};
 
-  virtual bool tick(data::Context ctx, long tickID, long millis) {
+  virtual bool tick(data::Context ctx, unsigned long tickID, unsigned long millis) {
     bool changed = false;
 
     if (ctx.getMachineBLEState() != m_lastState) {
@@ -31,7 +31,7 @@ class MachineStatus : public Widget {
   }
 
   virtual void paint(TFT_eSPI &tft) {
-    tft.drawCircle(m_x + 10, m_y + 10, 8, COLOR_BG);
+    tft.drawCircle(m_x + 10, m_y + 10, 8, COLOR_DASH_LINE);
     if (m_lastState == BLEState::CONNECTED) {
       tft.fillCircle(m_x + 10, m_y + 10, 7, COLOR_BLE);
     } else {
@@ -43,19 +43,19 @@ class MachineStatus : public Widget {
       }
     }
 
-    tft.fillRect(m_x + 22, m_y, 80, 20, COLOR_DASH_BG);
+    tft.fillRect(m_x + 22, m_y, m_width - 22, 20, COLOR_DASH_BG);
 
     if (m_lastState == BLEState::CONNECTED && m_headTemp > 0) {
       char buffer[10];
       snprintf(buffer, 10, "%dC", m_headTemp);
 
-      tft.setFreeFont(&FreeMonoBold9pt7b);
+      tft.setFreeFont(&FreeSans9pt7b);
       tft.setTextColor(TFT_WHITE, COLOR_DASH_BG);
       tft.drawString(buffer, m_x + 23, m_y + 4);
     } else {
-      tft.setFreeFont(&FreeMono9pt7b);
+      tft.setFreeFont(&FreeSans9pt7b);
       tft.setTextColor(TFT_WHITE, COLOR_DASH_BG);
-      tft.drawString("no de1", m_x + 23, m_y + 4);
+      tft.drawString("de1", m_x + 23, m_y + 4);
     }
   }
 
@@ -63,6 +63,8 @@ class MachineStatus : public Widget {
   BLEState m_lastState = BLEState::UNKNOWN;
   int m_x;
   int m_y;
+  int m_width;
+
   bool m_flash = true;
   int m_headTemp = 0;
 };
