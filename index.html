@@ -1,8 +1,43 @@
-<!DOCTYPE html>
+---
+---
+
 <html>
-<body>
-    <h1>ESP-Web-Tool-Test</h1>
-    <script type="module" src="https://unpkg.com/esp-web-tools@9.0.4/dist/web/install-button.js?module"></script>
-    <esp-web-install-button manifest="manifest.json"></esp-web-install-button>
-</body>
+
+<h1>ESP-Web-Tool-Test</h1>
+<script type="module" src="https://unpkg.com/esp-web-tools@9.0.4/dist/web/install-button.js?module"></script>
+<esp-web-install-button manifest="manifest.json"></esp-web-install-button>
+
+Welcome to My Home Page
+
+{% assign date = '2020-04-13T10:20:00Z' %}
+
+- Original date - {{ date }}
+- With timeago filter - {{ date | timeago }}
+
+<ul>
+    {% for member in site.data.releases %}
+    <li>
+        <a href="https://github.com/{{ member.github }}">
+            {{ member.name }}
+        </a>
+    </li>
+    {% endfor %}
+</ul>
+
+<h2>Firmwares</h2>
+{% for firmware in site.firmwares %}
+<h2>thnigd</h2>
+{% endfor %}
+
+{% assign firmwares = site.static_files %}
+{% for firmware in firmwares %}
+{{ firmware.path }}
+{% endfor %}
+
+<h2>Staff Members</h2>
+{% for staff_member in site.staff_members %}
+<h2>{{ staff_member.name }} - {{ staff_member.position }}</h2>
+<p>{{ staff_member.content | markdownify }}</p>
+{% endfor %}
+
 </html>

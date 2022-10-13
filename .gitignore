@@ -6,3 +6,5 @@
 .vscode/arduino.json
 .vscode/settings.json
 platformio-device-monitor*
+_site
+.jekyll-cache
