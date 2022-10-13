@@ -1,6 +1,6 @@
 {
     "name": "GNAT",
-    "version": "{{page.version}}",
+    "version": "v1.0.1",
     "new_install_skip_erase": false,
     "builds": [
         {
@@ -19,7 +19,7 @@
                     "offset": 57344
                 },
                 {
-                    "path": "{{page.firmware}}",
+                    "path": "assets/firmwares/1_0_1/gnat_ttgo_1_0_1.bin",
                     "offset": 65536
                 }
             ]

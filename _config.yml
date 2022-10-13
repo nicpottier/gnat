@@ -2,9 +2,4 @@
 
 title: "Jekyll Actions Demo"
 collections:
-  releases:
-    output: true
-
-
-whitelist:
-  - json
+  - releases

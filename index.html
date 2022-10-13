@@ -3,30 +3,25 @@
 
 <html>
 
-<h1>ESP-Web-Tool-Test</h1>
-<script type="module" src="https://unpkg.com/esp-web-tools@9.0.4/dist/web/install-button.js?module"></script>
-<esp-web-install-button manifest="manifest.json"></esp-web-install-button>
+<body>
+    <h1>GNAT Releases</h1>
+    <script type="module" src="https://unpkg.com/esp-web-tools@9.0.4/dist/web/install-button.js?module"></script>
 
-Welcome to My Home Page
+    <ul>
+        {% for release in site.releases %}
+        <h3>{{ release.name }}</h3>
 
-{% assign date = '2020-04-13T10:20:00Z' %}
+        {% for platform in release.platforms %}
+        <div style="height:50px;">
+            <b>{{ platform }}</b>
+            <esp-web-install-button
+                manifest="assets/firmwares/{{release.slug}}/gnat_{{platform}}_{{release.slug}}.json">
+            </esp-web-install-button>
+        </div>
+        {% endfor %}
+        {% endfor %}
+    </ul>
 
-- Original date - {{ date }}
-- With timeago filter - {{ date | timeago }}
-
-<ul>
-    {% for member in site.data.releases %}
-    <li>
-        <a href="https://github.com/{{ member.github }}">
-            {{ member.name }}
-        </a>
-    </li>
-    {% endfor %}
-</ul>
-
-{% assign firmwares = site.static_files %}
-{% for firmware in firmwares %}
-{{ firmware.path }}
-{% endfor %}
+</body>
 
 </html>
