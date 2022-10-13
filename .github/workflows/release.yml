@@ -38,27 +38,28 @@ jobs:
 
       - name: Run PlatformIO
         env:
-          VERSION: ${{ steps.get_version.outputs.version-without-v }}
+          VERSION: ${{ steps.get_version.outputs.version }}
         run: pio run
 
       - name: Archive production artifacts
         uses: actions/upload-artifact@v2
         with:
           name: firmware
-          path: .pio/build/**/firmware*.bin
+          path: .pio/build/**/gnat*.bin
 
       - name: Release
         uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          files: .pio/build/**/firmware*.bin
+          files: .pio/build/**/gnat*.bin
           
-      - name: Create assets firmwares directory & Copy files there
+      - name: Set up gh-pages files
+        env:
+          VERSION: ${{ steps.get_version.outputs.version }}
         run: |
-          mkdir assets
-          mkdir assets/firmwares
-          cp .pio/build/**/firmware*.bin assets/firmwares
+          cp -R .pio/build/gh-pages/assets .
+          cp -R .pio/build/gh-pages/_releases .
           
       - name: Upload to gh-pages branch
         uses: EndBug/add-and-commit@v9
@@ -66,7 +67,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           new_branch: gh-pages
-          add: assets/firmwares/firmware*.bin
-          
-        
+          add: 
+            - assets/*
+            - _releases/*
         
