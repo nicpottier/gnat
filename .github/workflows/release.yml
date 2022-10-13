@@ -45,11 +45,28 @@ jobs:
         uses: actions/upload-artifact@v2
         with:
           name: firmware
-          path: .pio/build/**/mobiflight*.hex
+          path: .pio/build/**/firmware*.bin
 
       - name: Release
         uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          files: .pio/build/**/firmware*.hex
+          files: .pio/build/**/firmware*.bin
+          
+      - name: Create assets firmwares directory & Copy files there
+        run: |
+          mkdir assets
+          mkdir assets/firmwares
+          cp .pio/build/**/firmware*.bin assets/firmware
+          
+      - name: Upload to gh-pages branch
+        uses: EndBug/add-and-commit@v9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          new_branch: gh-pages
+          add: assets/firmwares/firmware*.bin
+          
+        
+        
