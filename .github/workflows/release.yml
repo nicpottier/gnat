@@ -67,5 +67,5 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           new_branch: gh-pages
-          add: ["assets/*", "_releases/*"]
+          add: '["assets/*", "_releases/*"]'
         
