@@ -58,7 +58,7 @@ jobs:
         run: |
           mkdir assets
           mkdir assets/firmwares
-          cp .pio/build/**/firmware*.bin assets/firmware
+          cp .pio/build/**/firmware*.bin assets/firmwares
           
       - name: Upload to gh-pages branch
         uses: EndBug/add-and-commit@v9
