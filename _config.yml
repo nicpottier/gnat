@@ -2,10 +2,6 @@
 
 title: "Jekyll Actions Demo"
 collections:
-  firmwares:
-    output: true
-  staff_members:
-    people: true
   releases:
     output: true
 

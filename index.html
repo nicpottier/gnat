@@ -24,20 +24,9 @@ Welcome to My Home Page
     {% endfor %}
 </ul>
 
-<h2>Firmwares</h2>
-{% for firmware in site.firmwares %}
-<h2>thnigd</h2>
-{% endfor %}
-
 {% assign firmwares = site.static_files %}
 {% for firmware in firmwares %}
 {{ firmware.path }}
-{% endfor %}
-
-<h2>Staff Members</h2>
-{% for staff_member in site.staff_members %}
-<h2>{{ staff_member.name }} - {{ staff_member.position }}</h2>
-<p>{{ staff_member.content | markdownify }}</p>
 {% endfor %}
 
 </html>
