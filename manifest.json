@@ -6,7 +6,7 @@
       "improv": false,
       "parts": [{
       "chipFamily": "ESP32",
-      "parts": [{ "path": "ttgo.bin", "offset": 0 }]
+      "parts": [{ "path": "firmware_ttgo-v1_0_0_3.bin", "offset": 0 }]
     },
   ]
 }
