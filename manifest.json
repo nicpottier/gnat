@@ -8,7 +8,7 @@
         { "path": "bin/bootloader.bin", "offset": 4096 },
         { "path": "bin/partitions.bin", "offset": 32768 },
         { "path": "bin/ota.bin", "offset": 57344 },
-        { "path": "binfirmware.bin", "offset": 65536 }
+        { "path": "bin/firmware.bin", "offset": 65536 }
       ]
     },
   ]
