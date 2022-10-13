@@ -18,4 +18,4 @@ env.Append(CPPDEFINES=[
 ])
 
 # Set the output filename to the name of the board and the version
-env.Replace(PROGNAME=f'gnat_{env["PIOENV"]}_v{firmware_version}')
+env.Replace(PROGNAME=f'gnat_{env["PIOENV"]}_{firmware_version}')
