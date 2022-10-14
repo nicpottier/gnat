@@ -68,15 +68,14 @@ def populate_gh_pages(source, target, env):
     print(f"Wrote manifest: {manifest_path}")
 
     # 3) create a release markdown file for jekyll to use
-    RELEASE_MD = """
-    ---
-    name: gnat-$VERSION
-    version: $VERSION
-    platforms:
-        - ttgo
-        - m5stick
-    ---
-    """
+    RELEASE_MD = """---
+name: gnat-$VERSION
+version: $VERSION
+platforms:
+    - ttgo
+    - m5stick
+---
+"""
 
     release_md = RELEASE_MD
     release_md = release_md.replace("$VERSION", version)
