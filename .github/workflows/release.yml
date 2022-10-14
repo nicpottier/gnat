@@ -47,13 +47,6 @@ jobs:
           name: firmware
           path: .pio/build/**/gnat*.bin
 
-      - name: Release
-        uses: softprops/action-gh-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          files: .pio/build/**/gnat*.bin
-          
       - name: Set up gh-pages files
         env:
           VERSION: ${{ steps.get_version.outputs.version }}
