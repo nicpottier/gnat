@@ -63,7 +63,7 @@ class ScaleStatus : public Widget {
     } else {
       tft.setFreeFont(&FreeSans9pt7b);
       tft.setTextColor(TFT_WHITE, COLOR_DASH_BG);
-      tft.drawString("scale", m_x + 23, m_y + 4);
+      tft.drawString("Scale", m_x + 23, m_y + 4);
     }
   }
 

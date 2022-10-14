@@ -55,7 +55,7 @@ class MachineStatus : public Widget {
     } else {
       tft.setFreeFont(&FreeSans9pt7b);
       tft.setTextColor(TFT_WHITE, COLOR_DASH_BG);
-      tft.drawString("de1", m_x + 23, m_y + 4);
+      tft.drawString("DE1", m_x + 23, m_y + 4);
     }
   }
 
