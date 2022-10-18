@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <Command.h>
+#include <Config.h>
 #include <Data.h>
 
 #ifdef M5_STICK
@@ -8,14 +9,32 @@
 #include <TFT_eSPI.h>
 #endif
 
+#include <AsyncTCP.h>
+#include <DNSServer.h>
+#include <Esp.h>
 #include <NimBLEDevice.h>
+#include <Screen.h>
+#include <WiFi.h>
+#include <assets.h>
 #include <ble/DE1.h>
 #include <ble/FoundDevice.h>
 #include <ble/Skale.h>
+#include <widget/BrewBackground.h>
+#include <widget/ConfigBackground.h>
 #include <widget/MachineStatus.h>
 #include <widget/ScaleStatus.h>
 #include <widget/ShotGraph.h>
 #include <widget/ShotTimer.h>
+#include <widget/Splash.h>
+
+#include "ESPAsyncWebServer.h"
+
+#ifndef SSID
+#define SSID "GNAT"
+#endif
+
+DNSServer dnsServer;
+AsyncWebServer server(80);
 
 // the tft we draw to
 TFT_eSPI tft = TFT_eSPI(135, 240);
@@ -28,16 +47,23 @@ TFT_eSPI tft = TFT_eSPI(135, 240);
 
 static NimBLEScan* pBLEScan;
 static ble::Device* devices[2];
-static widget::Widget* widgets[4];
+
+static Config config{};
 
 static QueueHandle_t foundDeviceQ;
 
 static QueueHandle_t updateQ;
 static QueueHandle_t cmdQ;
 
+static Screen* s_splashScreen;
+static Screen* s_brewScreen;
+static Screen* s_configScreen;
+
 const int pwmFreq = 5000;
 const int pwmResolution = 8;
 const int pwmLedChannelTFT = 0;
+
+auto ctx = data::Context{};
 
 class BLEAdCallback : public NimBLEAdvertisedDeviceCallbacks {
   void onResult(NimBLEAdvertisedDevice* d) {
@@ -136,6 +162,95 @@ void bleLoop(void* parameters) {
   }
 }
 
+bool startingWifi = false;
+
+class CaptiveRequestHandler : public AsyncWebHandler {
+ public:
+  CaptiveRequestHandler() {}
+  virtual ~CaptiveRequestHandler() {}
+
+  bool canHandle(AsyncWebServerRequest* request) override {
+    return true;
+  }
+
+  bool isRequestHandlerTrivial() {
+    return false;
+  }
+
+  void handleRequest(AsyncWebServerRequest* request) override {
+    Serial.printf("%s: %s\n", request->methodToString(), request->url().c_str());
+
+    if (request->url() == "/gnat_white.png") {
+      auto response = request->beginResponse_P(200, "image/png", gnat_white_png, gnat_white_png_len);
+      response->addHeader("Content-Encoding", "gzip");
+      request->send(response);
+      Serial.println("sent gnat png");
+    }
+
+    else if (request->url() == "/pico.min.css") {
+      auto response = request->beginResponse_P(200, "text/css", pico_min_css, pico_min_css_len);
+      response->addHeader("Content-Encoding", "gzip");
+      request->send(response);
+      Serial.println("sent css");
+    }
+
+    else if (request->url() == "/config") {
+      if (request->method() == HTTP_POST) {
+        auto newConfig = Config::fromRequest(request);
+
+        // no errors? save our new config
+        if (newConfig.getError() == ConfigError::none) {
+          writeConfig(newConfig);
+          auto response = request->beginResponse_P(200, "text/html", success_html, success_html_len);
+          response->addHeader("Content-Encoding", "gzip");
+          request->send(response);
+
+          auto restart = data::DataUpdate::newRestartUpdate();
+          if (xQueueSend(updateQ, &restart, 10) != pdTRUE) {
+            Serial.println("Error queueing restart update");
+          }
+        } else {
+          char query[64];
+          newConfig.toURLQuery(query, 64);
+
+          char url[128];
+          snprintf(url, 128, "/config?%s", query);
+          request->redirect(url);
+          Serial.println("redirected to config");
+        }
+      } else {
+        auto response = request->beginResponse_P(200, "text/html", index_html, index_html_len);
+        response->addHeader("Content-Encoding", "gzip");
+        request->send(response);
+        Serial.println("sent config");
+      }
+    }
+
+    else {
+      char query[64];
+      config.toURLQuery(query, 64);
+
+      char url[128];
+      snprintf(url, 128, "/config?%s", query);
+      request->redirect(url);
+      Serial.println("redirected to config");
+    }
+  }
+};
+
+long lastMenuPress = millis();
+
+void IRAM_ATTR menuButtonPressed() {
+  // debounce
+  if (millis() - lastMenuPress > 1000) {
+    auto screen = data::DataUpdate::newScreenUpdate((ctx.screen == ScreenID::brew) ? ScreenID::config : ScreenID::brew);
+    if (xQueueSend(updateQ, &screen, 10) != pdTRUE) {
+      Serial.println("error queuing screen update");
+    }
+  }
+  lastMenuPress = millis();
+}
+
 void setup() {
 #ifdef M5_STICK
   M5.begin();
@@ -143,6 +258,10 @@ void setup() {
 
   Serial.begin(115200);
   Serial.printf("[%d] Setup - Version: %s\n", xPortGetCoreID(), VERSION);
+
+  sleep(1);
+
+  config = readConfig();
 
   foundDeviceQ = xQueueCreate(10, sizeof(ble::FoundDevice));
   updateQ = xQueueCreate(100, sizeof(data::DataUpdate));
@@ -153,10 +272,18 @@ void setup() {
   de1 = new ble::DE1{updateQ, cmdQ};
   devices[1] = de1;
 
-  widgets[0] = new widget::ScaleStatus{5, 7, 80};
-  widgets[1] = new widget::MachineStatus{85, 7, 80};
-  widgets[2] = new widget::ShotTimer{165, 7, 80};
-  widgets[3] = new widget::ShotGraph{5, 40, 230, 90};
+  s_splashScreen = new Screen{ScreenID::splash};
+  s_splashScreen->addWidget(new widget::Splash{240, 135});
+
+  s_brewScreen = new Screen{ScreenID::brew};
+  s_brewScreen->addWidget(new widget::BrewBackground{240, 135});
+  s_brewScreen->addWidget(new widget::ScaleStatus{5, 7, 80});
+  s_brewScreen->addWidget(new widget::MachineStatus{85, 7, 80});
+  s_brewScreen->addWidget(new widget::ShotTimer{165, 7, 80});
+  s_brewScreen->addWidget(new widget::ShotGraph{5, 40, 230, 90});
+
+  s_configScreen = new Screen{ScreenID::config};
+  s_configScreen->addWidget(new widget::ConfigBackground{240, 135});
 
   /** *Optional* Sets the filtering mode used by the scanner in the BLE
    * controller.
@@ -221,26 +348,35 @@ void setup() {
   tft.init();
 #endif
 
+  pinMode(MENU_BUTTON_PIN, INPUT_PULLUP);
+  attachInterrupt(MENU_BUTTON_PIN, menuButtonPressed, FALLING);
+
   tft.setRotation(3);
   tft.setSwapBytes(true);
-  tft.fillScreen(COLOR_BG);
-  tft.fillRoundRect(0, 0, 240, 35, 10, COLOR_DASH_BG);
-  tft.fillRect(0, 10, 240, 25, COLOR_DASH_BG);
-  tft.drawRect(0, 0, 240, 35, COLOR_DASH_LINE);
-  tft.fillRoundRect(0, 35, 240, 100, 10, COLOR_DASH_BG);
-  tft.fillRect(0, 35, 240, 50, COLOR_DASH_BG);
-  tft.fillRoundRect(3, 38, 234, 94, 10, COLOR_BG);
+  tft.fillScreen(theme.bg_color);
+
+  // your other setup stuff...
+  WiFi.softAP("GNAT");
+  if (dnsServer.start(53, "*", WiFi.softAPIP())) {
+    Serial.println("DNS Server Started");
+  } else {
+    Serial.println("unable to start dns server");
+  }
+  server.addHandler(new CaptiveRequestHandler()).setFilter(ON_AP_FILTER);  // only when requested from AP
+
+  // more handlers...
+  server.begin();
+
+  // show our splash for 2 seconds
+  ctx.splashEnd = millis() + 2000;
 }
 
-unsigned long tickID = 0;
 unsigned long lastTick = 0;
 unsigned long idleStart = 0;
 
 unsigned long lastTare = 0;
 unsigned long lastSleep = 0;
 unsigned long lastStop = 0;
-
-auto ctx = data::Context{};
 
 // how often we are trying to paint in millis, ~50 fps
 const unsigned long TICK_TARGET = 20;
@@ -253,7 +389,7 @@ const unsigned long CMD_TIMEOUT = 2000 / TICK_TARGET;
 
 void loop() {
   // container for the commands we pop off our queue
-  auto d = data::DataUpdate{UpdateType::EMPTY_UPDATE};
+  auto d = data::DataUpdate{UpdateType::null_update};
   auto nextTick = 0;
   idleStart = millis();
 
@@ -267,13 +403,10 @@ void loop() {
 
     // ready for our next tick?
     if (millis() > nextTick) {
-      // now tick and paint all our widgets
-      for (auto widget : widgets) {
-        auto repaint = widget->tick(ctx, tickID, millis());
-        if (repaint) {
-          widget->paint(tft);
-        }
-      }
+      // paint all our screens
+      s_splashScreen->tickAndPaint(ctx, tft);
+      s_brewScreen->tickAndPaint(ctx, tft);
+      s_configScreen->tickAndPaint(ctx, tft);
 
       // we just went to sleep, turn off the screen
       if (ctx.machineState == MachineState::sleep && lastState != ctx.machineState) {
@@ -293,22 +426,22 @@ void loop() {
 
       // if we just switched into brewing espresso, tare our scale
       if ((ctx.machineState != lastState && ctx.machineState == MachineState::espresso) ||
-          (ctx.machineState == MachineState::espresso && lastSubstate < MachineSubstate::preinfusion &&
-           ctx.machineSubstate >= MachineSubstate::preinfusion)) {
-        if (tickID - lastTare > CMD_TIMEOUT) {
+          (ctx.machineState == MachineState::espresso && lastSubstate < MachineSubstate::preinfusing &&
+           ctx.machineSubstate >= MachineSubstate::preinfusing)) {
+        if (ctx.tickID - lastTare > CMD_TIMEOUT) {
           auto tare = cmd::CommandRequest::newTareScaleCommand();
           xQueueSend(cmdQ, &tare, 10);
-          lastTare = tickID;
+          lastTare = ctx.tickID;
         }
       }
 
       // if we are brewing and we are over 36grams, stop
       if (ctx.machineState == MachineState::espresso && ctx.machineSubstate == MachineSubstate::pouring &&
           ctx.currentWeight > 35) {
-        if (tickID - lastStop > CMD_TIMEOUT) {
+        if (ctx.tickID - lastStop > CMD_TIMEOUT) {
           auto stop = cmd::CommandRequest::newStopMachineCommand();
           xQueueSend(cmdQ, &stop, 10);
-          lastStop = tickID;
+          lastStop = ctx.tickID;
         }
       }
 
@@ -319,10 +452,23 @@ void loop() {
 
       // if we haven't brewed anything for a bit, sleep
       if (ctx.machineState == MachineState::idle && millis() - idleStart > SLEEP_TIMEOUT) {
-        if (tickID - lastSleep > CMD_TIMEOUT) {
+        if (ctx.tickID - lastSleep > CMD_TIMEOUT) {
           auto sleep = cmd::CommandRequest::newSleepMachineCommand();
           xQueueSend(cmdQ, &sleep, 10);
-          lastSleep = tickID;
+          lastSleep = ctx.tickID;
+        }
+      }
+
+      // if it's time to reboot, do so
+      if (ctx.restartTickID > 0 && ctx.tickID > ctx.restartTickID) {
+        ESP.restart();
+      }
+
+      // splash is complete, move to brew screen
+      if (ctx.screen == ScreenID::splash && millis() > ctx.splashEnd) {
+        auto screen = data::DataUpdate::newScreenUpdate(ScreenID::brew);
+        if (xQueueSend(updateQ, &screen, 10) != pdTRUE) {
+          Serial.println("error queuing screen update");
         }
       }
 
@@ -330,9 +476,11 @@ void loop() {
       lastSubstate = ctx.machineSubstate;
 
       // increment our tick id and save our last tick
-      tickID++;
+      ctx.tickID++;
       lastTick = millis();
       nextTick = lastTick + TICK_TARGET;
+
+      dnsServer.processNextRequest();
     }
   }
 }

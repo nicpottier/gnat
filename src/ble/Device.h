@@ -22,9 +22,9 @@ class Device : public NimBLEClientCallbacks {
                   c->getPeerAddress().toString().c_str());
     if (!setupConnection(c)) {
       Serial.printf("[%d][%s] connection setup failed, disconnecting\n", xPortGetCoreID(), getName().c_str());
-      setState(BLEState::DISCONNECTED);
+      setState(BLEState::disconnected);
     } else {
-      setState(BLEState::CONNECTED);
+      setState(BLEState::connected);
     }
   };
 
@@ -33,20 +33,20 @@ class Device : public NimBLEClientCallbacks {
                   c->getPeerAddress().toString().c_str());
     m_client = nullptr;
     teardownConnection(c);
-    setState(BLEState::DISCONNECTED);
+    setState(BLEState::disconnected);
   };
 
-  bool isDisconnected() { return (m_state == BLEState::DISCONNECTED || !m_client || !m_client->isConnected()); }
+  bool isDisconnected() { return (m_state == BLEState::disconnected || !m_client || !m_client->isConnected()); }
 
   bool connect(NimBLEClient* c) {
     c->setClientCallbacks(this, false);
-    setState(BLEState::CONNECTING);
+    setState(BLEState::connecting);
     if (c->connect() && c->isConnected()) {
       m_client = c;
       return true;
     } else {
       m_client = nullptr;
-      setState(BLEState::DISCONNECTED);
+      setState(BLEState::disconnected);
       return false;
     }
   }

@@ -11,22 +11,22 @@ class ShotFrame {
   double groupPressure = 0;
   double headTemp = 0;
   double groupFlow = 0;
-  BLEState scaleBLEState = BLEState::UNKNOWN;
+  BLEState scaleBLEState = BLEState::unknown;
 };
 
 class ShotGraph : public Widget {
  public:
   ShotGraph(int x, int y, int width, int height) : m_x{x}, m_y{y}, m_width{width}, m_height{height} {};
 
-  virtual bool tick(data::Context ctx, unsigned long tickID, unsigned long millis) override {
+  bool tick(data::Context ctx, unsigned long tickID, unsigned long millis) override {
     auto changed = false;
-    if (ctx.getMachineBLEState() == BLEState::CONNECTED && ctx.getMachineBLEState() != m_machineBLEState) {
+    if (ctx.getMachineBLEState() == BLEState::connected && ctx.getMachineBLEState() != m_machineBLEState) {
       m_machineBLEState = ctx.getMachineBLEState();
       changed = true;
     }
 
     if (ctx.machineState == MachineState::espresso && ctx.machineSubstate != m_substate) {
-      if (m_substate < MachineSubstate::preinfusion && ctx.machineSubstate >= MachineSubstate::preinfusion) {
+      if (m_substate < MachineSubstate::preinfusing && ctx.machineSubstate >= MachineSubstate::preinfusing) {
         m_clear = true;
         m_frame = 10;
         changed = true;
@@ -65,10 +65,10 @@ class ShotGraph : public Widget {
     tft.drawLine(x, y, x, y - 2, color);
   }
 
-  virtual void paint(TFT_eSPI &tft) override {
+  void paint(TFT_eSPI &tft) override {
     // clear our graph if appropriate
     if (m_clear) {
-      tft.fillRoundRect(m_x - 1, m_y - 1, m_width + 2, m_height + 2, 10, COLOR_BG);
+      tft.fillRoundRect(m_x - 1, m_y - 1, m_width + 2, m_height + 2, 10, theme.bg_color);
       m_clear = false;
     }
 
@@ -76,31 +76,31 @@ class ShotGraph : public Widget {
     int x = (m_frame % m_width) + m_x;
 
     // clear ahead of us
-    tft.drawRect(x, m_y, min(x + 20, m_x + m_width) - x, m_height, COLOR_BG);
+    tft.drawRect(x, m_y, min(x + 20, m_x + m_width) - x, m_height, theme.bg_color);
 
     // if we are near the edge, clear there as well
     if (x + 20 > m_width) {
       auto wrap = (x + 20) % m_width;
-      tft.drawRect(m_x, m_y, wrap, m_height, COLOR_BG);
+      tft.drawRect(m_x, m_y, wrap, m_height, theme.bg_color);
     }
 
     // draw our sample data if the machine is connected
-    if (m_machineBLEState == BLEState::CONNECTED) {
+    if (m_machineBLEState == BLEState::connected) {
       // draw our flow
-      plotValue(tft, COLOR_WATER, m_frames[m_frame].groupFlow, 0, 10, 45);
+      plotValue(tft, theme.water_color, m_frames[m_frame].groupFlow, 0, 10, 45);
 
       // draw our pressure
-      plotValue(tft, COLOR_PRESSURE, m_frames[m_frame].groupPressure, 0, 12, 29);
+      plotValue(tft, theme.pressure_color, m_frames[m_frame].groupPressure, 0, 12, 29);
     }
 
     // draw our weight if we have a scale connected
-    if (m_frames[m_frame].scaleBLEState == BLEState::CONNECTED) {
-      plotValue(tft, COLOR_WEIGHT, m_frames[m_frame].weight, 0, 50, 15);
+    if (m_frames[m_frame].scaleBLEState == BLEState::connected) {
+      plotValue(tft, theme.weight_color, m_frames[m_frame].weight, 0, 50, 15);
     }
 
     // draw our border
-    tft.drawRoundRect(m_x, m_y, m_width, m_height, 10, COLOR_DASH_LINE);
-    tft.drawRoundRect(m_x - 1, m_y - 1, m_width + 2, m_height + 2, 10, COLOR_DASH_BG);
+    tft.drawRoundRect(m_x, m_y, m_width, m_height, 10, theme.dash_border_color);
+    tft.drawRoundRect(m_x - 1, m_y - 1, m_width + 2, m_height + 2, 10, theme.dash_bg_color);
   }
 
  private:
@@ -109,8 +109,8 @@ class ShotGraph : public Widget {
   int m_width;
   int m_height;
 
-  BLEState m_machineBLEState = BLEState::UNKNOWN;
-  BLEState m_scaleBLEState = BLEState::UNKNOWN;
+  BLEState m_machineBLEState = BLEState::unknown;
+  BLEState m_scaleBLEState = BLEState::unknown;
 
   MachineState m_state = MachineState::unknown;
   MachineSubstate m_substate = MachineSubstate::unknown;

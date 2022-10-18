@@ -4,19 +4,19 @@
 
 namespace ble {
 
-const auto SKALE_NAME = std::string{"Skale"};
-const auto SKALE_CMD_UUID = "0xef80";
-const auto SKALE_WEIGHT_UUID = "0xef81";
+const auto skale_name = std::string{"Skale"};
+const auto skale_cmd_uuid = "0xef80";
+const auto skale_weight_uuid = "0xef81";
 
-const auto SKALE_TARE = 0x10;
-const auto SKALE_DISPLAY_ON = 0xED;
-const auto SKALE_DISPLAY_OFF = 0xEE;
-const auto SKALE_GRAMS = 0x03;
-const auto SKALE_DISPLAY_WEIGHT = 0xEC;
+const auto skale_tare_cmd = 0x10;
+const auto skale_display_on_cmd = 0xED;
+const auto skale_display_off_cmd = 0xEE;
+const auto skale_grams = 0x03;
+const auto skale_display_weight = 0xEC;
 
 class Skale : public Device, public Scale {
  public:
-  Skale(QueueHandle_t updateQ, QueueHandle_t cmdQ) : Device(DeviceType::SCALE, updateQ, cmdQ) {}
+  Skale(QueueHandle_t updateQ, QueueHandle_t cmdQ) : Device(DeviceType::scale, updateQ, cmdQ) {}
 
   void scaleUpdate(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* pData, size_t length, bool isNotify) {
     if (length > 4) {
@@ -30,7 +30,7 @@ class Skale : public Device, public Scale {
       return false;
     }
 
-    return m_cmdCharacteristic->writeValue(SKALE_TARE);
+    return m_cmdCharacteristic->writeValue(skale_tare_cmd);
   }
 
   bool init() {
@@ -38,8 +38,8 @@ class Skale : public Device, public Scale {
       return false;
     }
 
-    return m_cmdCharacteristic->writeValue(SKALE_TARE) && m_cmdCharacteristic->writeValue(SKALE_DISPLAY_ON) &&
-           m_cmdCharacteristic->writeValue(SKALE_DISPLAY_WEIGHT) && m_cmdCharacteristic->writeValue(SKALE_GRAMS);
+    return m_cmdCharacteristic->writeValue(skale_tare_cmd) && m_cmdCharacteristic->writeValue(skale_display_on_cmd) &&
+           m_cmdCharacteristic->writeValue(skale_display_weight) && m_cmdCharacteristic->writeValue(skale_grams);
   }
 
   void teardownConnection(NimBLEClient* c) { m_cmdCharacteristic = nullptr; }
@@ -67,7 +67,7 @@ class Skale : public Device, public Scale {
         } else {
           Serial.print(" = WRITE ONLY");
 
-          if (ch->getUUID().toString() == SKALE_CMD_UUID) {
+          if (ch->getUUID().toString() == skale_cmd_uuid) {
             // characteristic is held by service, held by client, held by us, so should be safe
             m_cmdCharacteristic = ch;
           }
@@ -75,7 +75,7 @@ class Skale : public Device, public Scale {
 
         if (ch->canNotify()) {
           Serial.print("  CAN NOTIFY");
-          if (ch->getUUID().toString() == SKALE_WEIGHT_UUID) {
+          if (ch->getUUID().toString() == skale_weight_uuid) {
             if (ch->subscribe(true,
                               std::bind(&Skale::scaleUpdate, this, std::placeholders::_1, std::placeholders::_2,
                                         std::placeholders::_3, std::placeholders::_4),
@@ -102,8 +102,8 @@ class Skale : public Device, public Scale {
   }
 
   void selfRegister(Devices* devices) { devices->setScale(this); }
-  bool shouldConnect(NimBLEAdvertisedDevice* d) { return (d->getName() == SKALE_NAME); }
-  const std::string getName() { return SKALE_NAME; }
+  bool shouldConnect(NimBLEAdvertisedDevice* d) { return (d->getName() == skale_name); }
+  const std::string getName() { return skale_name; }
 
  private:
   NimBLERemoteCharacteristic* m_cmdCharacteristic = nullptr;

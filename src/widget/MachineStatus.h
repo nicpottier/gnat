@@ -8,7 +8,7 @@ class MachineStatus : public Widget {
  public:
   MachineStatus(int x, int y, int width) : m_x{x}, m_y{y}, m_width{width} {};
 
-  virtual bool tick(data::Context ctx, unsigned long tickID, unsigned long millis) {
+  bool tick(data::Context ctx, unsigned long tickID, unsigned long millis) {
     bool changed = false;
 
     if (ctx.getMachineBLEState() != m_lastState) {
@@ -30,37 +30,37 @@ class MachineStatus : public Widget {
     return changed;
   }
 
-  virtual void paint(TFT_eSPI &tft) {
-    tft.drawCircle(m_x + 10, m_y + 10, 8, COLOR_DASH_LINE);
-    if (m_lastState == BLEState::CONNECTED) {
-      tft.fillCircle(m_x + 10, m_y + 10, 7, COLOR_BLE);
+  void paint(TFT_eSPI &tft) {
+    tft.drawCircle(m_x + 10, m_y + 10, 8, theme.dash_border_color);
+    if (m_lastState == BLEState::connected) {
+      tft.fillCircle(m_x + 10, m_y + 10, 7, theme.ble_color);
     } else {
-      auto color = (m_lastState == BLEState::CONNECTING) ? COLOR_BLE : COLOR_ERROR;
+      auto color = (m_lastState == BLEState::connecting) ? theme.ble_color : theme.error_color;
       if (m_flash) {
         tft.fillCircle(m_x + 10, m_y + 10, 7, color);
       } else {
-        tft.fillCircle(m_x + 10, m_y + 10, 7, COLOR_DASH_BG);
+        tft.fillCircle(m_x + 10, m_y + 10, 7, theme.dash_bg_color);
       }
     }
 
-    tft.fillRect(m_x + 22, m_y, m_width - 22, 20, COLOR_DASH_BG);
+    tft.fillRect(m_x + 22, m_y, m_width - 22, 20, theme.dash_bg_color);
 
-    if (m_lastState == BLEState::CONNECTED && m_headTemp > 0) {
+    if (m_lastState == BLEState::connected && m_headTemp > 0) {
       char buffer[10];
       snprintf(buffer, 10, "%dC", m_headTemp);
 
       tft.setFreeFont(&FreeSans9pt7b);
-      tft.setTextColor(TFT_WHITE, COLOR_DASH_BG);
+      tft.setTextColor(TFT_WHITE, theme.dash_bg_color);
       tft.drawString(buffer, m_x + 23, m_y + 4);
     } else {
       tft.setFreeFont(&FreeSans9pt7b);
-      tft.setTextColor(TFT_WHITE, COLOR_DASH_BG);
+      tft.setTextColor(TFT_WHITE, theme.dash_bg_color);
       tft.drawString("DE1", m_x + 23, m_y + 4);
     }
   }
 
  private:
-  BLEState m_lastState = BLEState::UNKNOWN;
+  BLEState m_lastState = BLEState::unknown;
   int m_x;
   int m_y;
   int m_width;
