@@ -59,7 +59,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          pull: '--rebase'
+          pull: '--rebase --autostash'
           new_branch: gh-pages
           add: '["assets/*", "_releases/*"]'
 
