@@ -6,7 +6,10 @@
 namespace widget {
 class ScaleStatus : public Widget {
  public:
-  ScaleStatus(int x, int y, int width) : m_x{x}, m_y{y}, m_width{width} {};
+  ScaleStatus(int x, int y, int width)
+      : m_x{x},
+        m_y{y},
+        m_width{width} {};
 
   bool tick(data::Context ctx, unsigned long tickID, unsigned long millis) {
     bool changed = false;
@@ -58,11 +61,11 @@ class ScaleStatus : public Widget {
       }
 
       tft.setFreeFont(&FreeSans9pt7b);
-      tft.setTextColor(TFT_WHITE, theme.dash_bg_color);
+      tft.setTextColor(theme.text_color, theme.dash_bg_color);
       tft.drawString(buffer, m_x + 23, m_y + 4);
     } else {
       tft.setFreeFont(&FreeSans9pt7b);
-      tft.setTextColor(TFT_WHITE, theme.dash_bg_color);
+      tft.setTextColor(theme.text_color, theme.dash_bg_color);
       tft.drawString("Scale", m_x + 23, m_y + 4);
     }
   }

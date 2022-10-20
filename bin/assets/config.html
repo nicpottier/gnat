@@ -5,20 +5,33 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="pico.min.css">
+    <style>
+        div.bordered {
+            border: 1px solid;
+            border-radius: 5px;
+            padding: .5rem;
+            margin-bottom: 20px;
+        }
+
+        div.error {
+            border-color: firebrick;
+        }
+
+        div.msg {
+            border-color: darkgreen;
+        }
+    </style>
     <title>GNAT Configuration</title>
 </head>
 
 <body>
     <main class="container">
+        <div style="text-align:right;"><img src="gnat_white.png" style="padding-bottom:1rem" /></div>
+        <div class="bordered error" id="error" style="display:none;"></div>
+        <div class="bordered msg" id="msg" style="display:none;"></div>
         <form method="post" action="/config">
-            <img src="gnat_white.png" />
-            <h1>Configuration</h1>
-
-            <blockquote id="error" style="display:none;border-left-color:firebrick;">
-            </blockquote>
-
             <label for="stop_weight">Stop at Weight</label>
-            <input type="number" name="stop_weight" id="stop_weight" placeholder="36" min="0" max="100" required>
+            <input type="number" name="stop_weight" id="stop_weight" placeholder="36" min="0" max="1000" required>
             <small>Automatically stop shot at this weight in grams.</small>
 
             <label for="sleep_time">Sleep Timeout</label>
@@ -42,9 +55,16 @@
 
     const error = urlParams.get("error");
     if (error) {
-        quote = document.getElementById("error");
-        quote.innerText = error;
-        quote.style.display = "block";
+        ediv = document.getElementById("error");
+        ediv.innerText = error;
+        ediv.style.display = "block";
+    }
+
+    const msg = urlParams.get("msg");
+    if (msg) {
+        mdiv = document.getElementById("msg");
+        mdiv.innerText = msg;
+        mdiv.style.display = "block";
     }
 </script>
 

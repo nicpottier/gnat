@@ -3,6 +3,11 @@
 #include <widget/Theme.h>
 #include <widget/Widget.h>
 
+// TODO: this is a dupe of main content, move to separate include
+#define STRINGIZER(arg) #arg
+#define STR_VALUE(arg) STRINGIZER(arg)
+#define SPLASH_VERSION STR_VALUE(BUILD_VERSION)
+
 namespace widget {
 class ConfigBackground : public Widget {
  public:
@@ -23,6 +28,11 @@ class ConfigBackground : public Widget {
     tft.fillRoundRect(0, 35, m_width, 100, 10, theme.dash_bg_color);
     tft.fillRect(0, 35, m_width, 50, theme.dash_bg_color);
     tft.fillRoundRect(3, 38, m_width - 6, 94, 10, theme.bg_color);
+
+    tft.setFreeFont(&FreeSans9pt7b);
+    tft.setTextColor(theme.text_color, theme.dash_bg_color);
+    tft.drawString("Configuration", 10, 10);
+    tft.drawString(SPLASH_VERSION, 235 - strlen(SPLASH_VERSION) * 9, 10);
   }
 
  private:

@@ -12,7 +12,12 @@ static const char* invalid_sleep_time_error = "Invalid+sleep+time,+must+be+less+
 static const char* invalid_stop_weight_error = "Invalid+stop+weight,+must+be+less+than+100";
 
 static const int default_stop_weight = 36;
+static const int max_stop_weight = 100;
+static const int min_stop_weight = 0;
+
 static const int default_sleep_time = 15;
+static const int max_sleep_time = 360;
+static const int min_sleep_time = 0;
 
 enum class ConfigError {
   none = 0,
@@ -23,9 +28,11 @@ enum class ConfigError {
 class Config {
  public:
   Config()
-      : m_sleepTime{0},
-        m_stopWeight{0},
-        m_error(ConfigError::none) {}
+      : m_sleepTime{default_sleep_time},
+        m_stopWeight{default_stop_weight},
+        m_error(ConfigError::none) {
+    m_version = millis();
+  }
 
   static Config fromQueryString(char* query) {
     auto stopWeight = getUnsignedInt(query, stop_weight_key);
@@ -59,7 +66,7 @@ class Config {
     }
     if (m_sleepTime != 0) {
       size -= strlen(field);
-      field += snprintf(field, size, "%s=%d", sleep_time_key, m_sleepTime);
+      field += snprintf(field, size, "%s=%d&", sleep_time_key, m_sleepTime);
     }
     if (m_error == ConfigError::invalid_sleep_time) {
       size -= strlen(field);
@@ -83,6 +90,10 @@ class Config {
     return m_error;
   }
 
+  unsigned long getVersion() {
+    return m_version;
+  }
+
  private:
   Config(int sleepTime, int stopAtWeight)
       : m_sleepTime{sleepTime},
@@ -92,15 +103,17 @@ class Config {
       m_sleepTime = default_sleep_time;
     }
 
-    else if (m_sleepTime < 0 || m_sleepTime > 360) {
+    else if (m_sleepTime < min_sleep_time || m_sleepTime > max_sleep_time) {
       m_error = ConfigError::invalid_sleep_time;
     }
 
     if (m_stopWeight == 0) {
       m_stopWeight = default_stop_weight;
-    } else if (m_stopWeight < 0 || m_stopWeight > 100) {
+    } else if (m_stopWeight < min_stop_weight || m_stopWeight > max_stop_weight) {
       m_error = ConfigError::invalid_stop_weight;
     }
+
+    m_version = millis();
   }
 
   // parses the passed in string value into an unsigned integer,
@@ -171,9 +184,17 @@ class Config {
     return value;
   }
 
+  // how long before we put the machine to sleep
   int m_sleepTime;
+
+  // the weight we will stop at
   int m_stopWeight;
+
+  // the last error encountered while parsing
   ConfigError m_error;
+
+  // the version for this config, used to detect changes by widgets
+  unsigned long m_version;
 };
 
 Config readConfig() {

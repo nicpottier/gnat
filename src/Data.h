@@ -11,9 +11,10 @@ enum class UpdateType : uint8_t {
   restart_update,
   water_level_update,
   screen_update,
+  config_update,
 };
 
-enum class ScreenID : uint8_t { unknown, splash, brew, config };
+enum class ScreenID : uint8_t { unknown, brew, connect, config };
 
 enum class DeviceType : uint8_t { unknown, machine, scale, last };
 
@@ -175,10 +176,6 @@ class Context {
     return bleStates[int(DeviceType::scale)];
   }
 
-  void init() {
-    splashEnd = millis() + 2000;
-  }
-
   BLEState bleStates[int(DeviceType::last)];
   Sample lastSample{};
   double currentWeight = 0;
@@ -192,8 +189,23 @@ class Context {
   int waterLevel = 0;
   int waterLevelThreshold = 0;
 
-  ScreenID screen = ScreenID::splash;
-  unsigned long splashEnd = 0;
+  ScreenID screen = ScreenID::brew;
+
+  Config config = Config{};
+};
+
+class ConfigUpdate {
+ public:
+  ConfigUpdate(Config config)
+      : m_config{config} {}
+
+  bool apply(Context* ctx) {
+    ctx->config = m_config;
+    return true;
+  }
+
+ private:
+  Config m_config;
 };
 
 class ScreenUpdate {
@@ -325,6 +337,8 @@ class DataUpdate {
         return m_waterLevelUpdate.apply(ctx);
       case UpdateType::screen_update:
         return m_screenUpdate.apply(ctx);
+      case UpdateType::config_update:
+        return m_configUpdate.apply(ctx);
       default:
         return false;
     }
@@ -372,6 +386,12 @@ class DataUpdate {
     return u;
   }
 
+  static DataUpdate newConfigUpdate(Config config) {
+    auto u = DataUpdate{UpdateType::config_update};
+    u.m_configUpdate = ConfigUpdate(config);
+    return u;
+  }
+
  private:
   UpdateType m_type;
 
@@ -383,6 +403,7 @@ class DataUpdate {
     RestartUpdate m_restartUpdate;
     WaterLevelUpdate m_waterLevelUpdate;
     ScreenUpdate m_screenUpdate;
+    ConfigUpdate m_configUpdate;
   };
 };
 

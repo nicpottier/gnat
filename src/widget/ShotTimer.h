@@ -6,7 +6,10 @@
 namespace widget {
 class ShotTimer : public Widget {
  public:
-  ShotTimer(int x, int y, int width) : m_x{x}, m_y{y}, m_width{width} {};
+  ShotTimer(int x, int y, int width)
+      : m_x{x},
+        m_y{y},
+        m_width{width} {};
 
   bool tick(data::Context ctx, unsigned long tickID, unsigned long millis) {
     bool changed = false;
@@ -45,7 +48,7 @@ class ShotTimer : public Widget {
       char buffer[10];
       snprintf(buffer, 10, "%0.1fs", elapsed);
       tft.setFreeFont(&FreeSans9pt7b);
-      tft.setTextColor(TFT_WHITE, theme.dash_bg_color);
+      tft.setTextColor(theme.text_color, theme.dash_bg_color);
       tft.drawString(buffer, m_x + 10, m_y + 4);
     }
 
@@ -55,7 +58,7 @@ class ShotTimer : public Widget {
       char buffer[10];
       snprintf(buffer, 10, "%0.1fs", elapsed);
       tft.setFreeFont(&FreeSans9pt7b);
-      tft.setTextColor(TFT_WHITE, theme.dash_bg_color);
+      tft.setTextColor(theme.text_color, theme.dash_bg_color);
       tft.drawString(buffer, m_x + 10, m_y + 4);
     }
   }
