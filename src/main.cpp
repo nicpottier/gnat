@@ -474,7 +474,6 @@ void loop() {
 
       // if we haven't brewed anything for a bit, sleep
       if (ctx.machineState == MachineState::idle && millis() - idleStart > ctx.config.getSleepTime() * 60 * 1000) {
-        Serial.printf("millis: %d idleStart: %d sleepTime: %d\n", millis(), idleStart, ctx.config.getSleepTime());
         if (ctx.tickID - lastSleep > CMD_TIMEOUT) {
           auto sleep = cmd::CommandRequest::newSleepMachineCommand();
           xQueueSend(cmdQ, &sleep, 10);
