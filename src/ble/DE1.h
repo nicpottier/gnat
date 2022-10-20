@@ -5,31 +5,32 @@
 
 namespace ble {
 
-const auto DE1_NAME = "DE1";
-const auto REQUESTED_STATE_UUID = "0xa002";
-const auto STATE_UUID = "0xa00e";
-const auto WATER_UUID = "0xa011";
-const auto SAMPLE_UUID = "0xa00d";
+const auto de1_name = "DE1";
+const auto de1_requested_state_uuid = "0xa002";
+const auto de1_state_uuid = "0xa00e";
+const auto de1_water_uuid = "0xa011";
+const auto de1_sample_uuid = "0xa00d";
 
-const uint8_t STATE_SLEEP = 0x00;
-const uint8_t STATE_IDLE = 0x02;
+const uint8_t de1_sleep_cmd = 0x00;
+const uint8_t de1_stop_cmd = 0x02;
 
 class DE1 : public Device, public Machine {
  public:
-  DE1(QueueHandle_t updateQ, QueueHandle_t cmdQ) : Device(DeviceType::MACHINE, updateQ, cmdQ) {}
+  DE1(QueueHandle_t updateQ, QueueHandle_t cmdQ)
+      : Device(DeviceType::machine, updateQ, cmdQ) {}
 
   bool stop() {
     if (!m_cmdCharacteristic) {
       return false;
     }
-    return m_cmdCharacteristic->writeValue(STATE_IDLE);
+    return m_cmdCharacteristic->writeValue(de1_stop_cmd);
   }
 
   bool sleep() {
     if (!m_cmdCharacteristic) {
       return false;
     }
-    return m_cmdCharacteristic->writeValue(STATE_SLEEP);
+    return m_cmdCharacteristic->writeValue(de1_sleep_cmd);
   }
 
   void stateUpdate(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* d, size_t length, bool isNotify) {
@@ -69,12 +70,12 @@ class DE1 : public Device, public Machine {
   void waterUpdate(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* d, size_t length, bool isNotify) {
     ushort level = d[1] | (d[2] << 8);
     ushort threshold = d[3] | (d[4] << 8);
+    queueUpdate(data::DataUpdate::newWaterLevelUpdate(level, threshold));
   }
 
   bool setupConnection(NimBLEClient* c) {
     Serial.printf("[%s] client connection id %d\n", getName().c_str(), c->getConnId());
     c->setConnectTimeout(1);
-    NimBLERemoteCharacteristic* pChr = nullptr;
 
     std::vector<NimBLERemoteService*>* svcs = c->getServices(true);
     for (int i = 0; i < svcs->size(); i++) {
@@ -96,14 +97,14 @@ class DE1 : public Device, public Machine {
           Serial.print(" = WRITE ONLY");
         }
 
-        if (ch->getUUID().toString() == REQUESTED_STATE_UUID) {
+        if (ch->getUUID().toString() == de1_requested_state_uuid) {
           m_cmdCharacteristic = ch;
         }
 
         if (ch->canNotify()) {
           Serial.print("  CAN NOTIFY");
           // state update
-          if (ch->getUUID().toString() == STATE_UUID) {
+          if (ch->getUUID().toString() == de1_state_uuid) {
             ch->subscribe(true, std::bind(&DE1::stateUpdate, this, std::placeholders::_1, std::placeholders::_2,
                                           std::placeholders::_3, std::placeholders::_4));
             Serial.print(" STATE");
@@ -114,13 +115,13 @@ class DE1 : public Device, public Machine {
             queueUpdate(data::DataUpdate::newMachineStateUpdate((MachineState)state, (MachineSubstate)subState));
           }
           // sample update
-          if (ch->getUUID().toString() == SAMPLE_UUID) {
+          if (ch->getUUID().toString() == de1_sample_uuid) {
             ch->subscribe(true, std::bind(&DE1::sampleUpdate, this, std::placeholders::_1, std::placeholders::_2,
                                           std::placeholders::_3, std::placeholders::_4));
             Serial.print(" SAMPLE");
           }
           // water update
-          if (ch->getUUID().toString() == WATER_UUID) {
+          if (ch->getUUID().toString() == de1_water_uuid) {
             ch->subscribe(true, std::bind(&DE1::waterUpdate, this, std::placeholders::_1, std::placeholders::_2,
                                           std::placeholders::_3, std::placeholders::_4));
             Serial.print(" WATER");
@@ -135,13 +136,17 @@ class DE1 : public Device, public Machine {
 
   void teardownConnection(NimBLEClient* c) {}
 
-  void selfRegister(Devices* devices) { devices->setMachine(this); }
+  void selfRegister(Devices* devices) {
+    devices->setMachine(this);
+  }
 
   bool shouldConnect(NimBLEAdvertisedDevice* d) {
     // name returned by BLE is null terminated (in a std::string!) so fallback to strcmp
-    return (strcmp(DE1_NAME, d->getName().c_str())) == 0;
+    return (strcmp(de1_name, d->getName().c_str())) == 0;
   }
-  const std::string getName() { return DE1_NAME; }
+  const std::string getName() {
+    return de1_name;
+  }
 
  private:
   NimBLERemoteCharacteristic* m_cmdCharacteristic = nullptr;

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="pico.min.css">
+    <style>
+        div.bordered {
+            border: 1px solid;
+            border-radius: 5px;
+            padding: .5rem;
+            margin-bottom: 20px;
+        }
+
+        div.error {
+            border-color: firebrick;
+        }
+
+        div.msg {
+            border-color: darkgreen;
+        }
+    </style>
+    <title>GNAT Configuration</title>
+</head>
+
+<body>
+    <main class="container">
+        <div style="text-align:right;"><img src="gnat_white.png" style="padding-bottom:1rem" /></div>
+        <div class="bordered error" id="error" style="display:none;"></div>
+        <div class="bordered msg" id="msg" style="display:none;"></div>
+        <form method="post" action="/config">
+            <label for="stop_weight">Stop at Weight</label>
+            <input type="number" name="stop_weight" id="stop_weight" placeholder="36" min="0" max="100" required>
+            <small>Automatically stop shot at this weight in grams.</small>
+
+            <label for="sleep_time">Sleep Timeout</label>
+            <input type="number" name="sleep_time" id="sleep_time" placeholder="15" min="0" max="360" required>
+            <small>How many minutes before your machine is put to sleep.</small>
+
+            <button type="submit">Save</button>
+        </form>
+    </main>
+</body>
+
+<script>
+    const queryString = window.location.search;
+    const urlParams = new URLSearchParams(queryString);
+
+    const stopWeight = urlParams.get('stop_weight');
+    document.getElementById("stop_weight").value = stopWeight;
+
+    const sleepTime = urlParams.get("sleep_time");
+    document.getElementById("sleep_time").value = sleepTime;
+
+    const error = urlParams.get("error");
+    if (error) {
+        ediv = document.getElementById("error");
+        ediv.innerText = error;
+        ediv.style.display = "block";
+    }
+
+    const msg = urlParams.get("msg");
+    if (msg) {
+        mdiv = document.getElementById("msg");
+        mdiv.innerText = msg;
+        mdiv.style.display = "block";
+    }
+</script>
+
+</html>

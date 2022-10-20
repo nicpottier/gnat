@@ -7,3 +7,4 @@
 .vscode/settings.json
 platformio-device-monitor*
 .jekyll-cache
+_site

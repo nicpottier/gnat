@@ -6,9 +6,12 @@
 namespace widget {
 class ShotTimer : public Widget {
  public:
-  ShotTimer(int x, int y, int width) : m_x{x}, m_y{y}, m_width{width} {};
+  ShotTimer(int x, int y, int width)
+      : m_x{x},
+        m_y{y},
+        m_width{width} {};
 
-  virtual bool tick(data::Context ctx, unsigned long tickID, unsigned long millis) {
+  bool tick(data::Context ctx, unsigned long tickID, unsigned long millis) {
     bool changed = false;
 
     // we just started a pour, log the start time
@@ -36,8 +39,8 @@ class ShotTimer : public Widget {
     return changed;
   }
 
-  virtual void paint(TFT_eSPI& tft) {
-    tft.fillRect(m_x, m_y, m_width, 22, COLOR_DASH_BG);
+  void paint(TFT_eSPI& tft) {
+    tft.fillRect(m_x, m_y, m_width, 22, theme.dash_bg_color);
 
     // if we have a shot time, show that
     if (m_shotTime > 0) {
@@ -45,7 +48,7 @@ class ShotTimer : public Widget {
       char buffer[10];
       snprintf(buffer, 10, "%0.1fs", elapsed);
       tft.setFreeFont(&FreeSans9pt7b);
-      tft.setTextColor(TFT_WHITE, COLOR_DASH_BG);
+      tft.setTextColor(theme.text_color, theme.dash_bg_color);
       tft.drawString(buffer, m_x + 10, m_y + 4);
     }
 
@@ -55,7 +58,7 @@ class ShotTimer : public Widget {
       char buffer[10];
       snprintf(buffer, 10, "%0.1fs", elapsed);
       tft.setFreeFont(&FreeSans9pt7b);
-      tft.setTextColor(TFT_WHITE, COLOR_DASH_BG);
+      tft.setTextColor(theme.text_color, theme.dash_bg_color);
       tft.drawString(buffer, m_x + 10, m_y + 4);
     }
   }

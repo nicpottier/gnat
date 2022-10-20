@@ -1,20 +1,28 @@
 #pragma once
 
+const long restart_tick_delay = 100;
+
 enum class UpdateType : uint8_t {
-  EMPTY_UPDATE,
-  BLE_STATE_UPDATE,
-  WEIGHT_UPDATE,
-  SAMPLE_UPDATE,
-  MACHINE_STATE_UPDATE,
+  null_update,
+  ble_state_update,
+  weight_update,
+  sample_update,
+  machine_state_update,
+  restart_update,
+  water_level_update,
+  screen_update,
+  config_update,
 };
 
-enum class DeviceType : uint8_t { UNKNOWN, MACHINE, SCALE, LAST };
+enum class ScreenID : uint8_t { unknown, brew, connect, config };
+
+enum class DeviceType : uint8_t { unknown, machine, scale, last };
 
 enum class BLEState : uint8_t {
-  UNKNOWN = 0,
-  DISCONNECTED,
-  CONNECTING,
-  CONNECTED,
+  unknown,
+  disconnected,
+  connecting,
+  connected,
 };
 
 enum class MachineState {
@@ -78,41 +86,41 @@ enum class MachineSubstate {
   ready = 0,
   heating = 1,
   final_heating = 2,
-  stabilising = 3,
-  preinfusion = 4,
+  stabilizing = 3,
+  preinfusing = 4,
   pouring = 5,
   ending = 6,
-  Steaming = 7,
-  DescaleInit = 8,
-  DescaleFillGroup = 9,
-  DescaleReturn = 10,
-  DescaleGroup = 11,
-  DescaleSteam = 12,
-  CleanInit = 13,
-  CleanFillGroup = 14,
-  CleanSoak = 15,
-  CleanGroup = 16,
+  steaming = 7,
+  descale_init = 8,
+  descale_fill_group = 9,
+  descale_return = 10,
+  descale_group = 11,
+  descale_steam = 12,
+  clean_init = 13,
+  clean_fill_group = 14,
+  clean_soak = 15,
+  clean_group = 16,
   refill = 17,
-  PausedSteam = 18,
-  UserNotPresent = 19,
+  paused_steam = 18,
+  user_not_present = 19,
   puffing = 20,
-  Error_NaN = 200,
-  Error_Inf = 201,
-  Error_Generic = 202,
-  Error_ACC = 203,
-  Error_TSensor = 204,
-  Error_PSensor = 205,
-  Error_WLevel = 206,
-  Error_DIP = 207,
-  Error_Assertion = 208,
-  Error_Unsafe = 209,
-  Error_InvalidParm = 210,
-  Error_Flash = 211,
-  Error_OOM = 212,
-  Error_Deadline = 213,
-  Error_HiCurrent = 214,
-  Error_LoCurrent = 215,
-  Error_BootFill = 216,
+  error_nan = 200,
+  error_inf = 201,
+  error_generic = 202,
+  error_aCC = 203,
+  error_tsensor = 204,
+  error_psensor = 205,
+  error_wlevel = 206,
+  error_dip = 207,
+  error_assertion = 208,
+  error_unsafe = 209,
+  error_invalid_parm = 210,
+  error_flash = 211,
+  error_oom = 212,
+  error_deadline = 213,
+  error_hi_current = 214,
+  error_lo_current = 215,
+  error_boot_fill = 216,
   unknown = 255,  // 255, unknown (gnat specific)
 };
 
@@ -161,23 +169,84 @@ class Sample {
 
 class Context {
  public:
-  BLEState getMachineBLEState() { return bleStates[int(DeviceType::MACHINE)]; }
-  BLEState getScaleBLEState() { return bleStates[int(DeviceType::SCALE)]; }
+  BLEState getMachineBLEState() {
+    return bleStates[int(DeviceType::machine)];
+  }
+  BLEState getScaleBLEState() {
+    return bleStates[int(DeviceType::scale)];
+  }
 
-  BLEState bleStates[int(DeviceType::LAST)];
+  BLEState bleStates[int(DeviceType::last)];
   Sample lastSample{};
   double currentWeight = 0;
 
+  unsigned long tickID = 0;
+  unsigned long restartTickID = 0;
+
   MachineState machineState = MachineState::unknown;
   MachineSubstate machineSubstate = MachineSubstate::unknown;
+
+  int waterLevel = 0;
+  int waterLevelThreshold = 0;
+
+  ScreenID screen = ScreenID::brew;
+
+  Config config = Config{};
+};
+
+class ConfigUpdate {
+ public:
+  ConfigUpdate(Config config)
+      : m_config{config} {}
+
+  bool apply(Context* ctx) {
+    ctx->config = m_config;
+    return true;
+  }
+
+ private:
+  Config m_config;
+};
+
+class ScreenUpdate {
+ public:
+  ScreenUpdate(ScreenID screen)
+      : m_screen{screen} {}
+
+  bool apply(Context* ctx) {
+    ctx->screen = m_screen;
+    return true;
+  }
+
+ private:
+  ScreenID m_screen;
+};
+
+class WaterLevelUpdate {
+ public:
+  WaterLevelUpdate(int level, int threshold)
+      : m_waterLevel{level},
+        m_waterLevelThreshold{threshold} {}
+
+  bool apply(Context* ctx) {
+    ctx->waterLevel = m_waterLevel;
+    ctx->waterLevelThreshold = m_waterLevelThreshold;
+    return true;
+  }
+
+ private:
+  int m_waterLevel;
+  int m_waterLevelThreshold;
 };
 
 class BLEStateUpdate {
  public:
-  BLEStateUpdate(DeviceType device, BLEState state) : m_device{device}, m_state{state} {}
+  BLEStateUpdate(DeviceType device, BLEState state)
+      : m_device{device},
+        m_state{state} {}
 
   bool apply(Context* ctx) {
-    if (m_device >= DeviceType::LAST) {
+    if (m_device >= DeviceType::last) {
       return false;
     }
 
@@ -192,7 +261,8 @@ class BLEStateUpdate {
 
 class WeightUpdate {
  public:
-  WeightUpdate(double weight) : m_weight{weight} {}
+  WeightUpdate(double weight)
+      : m_weight{weight} {}
   bool apply(Context* ctx) {
     ctx->currentWeight = m_weight;
     return true;
@@ -204,7 +274,8 @@ class WeightUpdate {
 
 class SampleUpdate {
  public:
-  SampleUpdate(Sample s) : m_sample{s} {}
+  SampleUpdate(Sample s)
+      : m_sample{s} {}
   bool apply(Context* ctx) {
     ctx->lastSample = m_sample;
     return true;
@@ -214,15 +285,29 @@ class SampleUpdate {
   Sample m_sample;
 };
 
+class RestartUpdate {
+ public:
+  RestartUpdate() {}
+
+  bool apply(Context* ctx) {
+    ctx->restartTickID = ctx->tickID + restart_tick_delay;
+    return true;
+  }
+};
+
 class MachineStateUpdate {
  public:
-  MachineStateUpdate() : m_state{MachineState::unknown}, m_substate{MachineSubstate::unknown} {};
-  MachineStateUpdate(MachineState state, MachineSubstate substate) : m_state{state}, m_substate{substate} {};
+  MachineStateUpdate()
+      : m_state{MachineState::unknown},
+        m_substate{MachineSubstate::unknown} {};
+  MachineStateUpdate(MachineState state, MachineSubstate substate)
+      : m_state{state},
+        m_substate{substate} {};
 
   bool apply(Context* ctx) {
     ctx->machineState = m_state;
     ctx->machineSubstate = m_substate;
-    Serial.printf("APPLIED STATE UPDATE: %d [%d]\n", m_state, m_substate);
+    Serial.printf("APPLIED STATE UPDATE: %d [%d]\n", int(m_state), int(m_substate));
     return true;
   }
 
@@ -233,44 +318,77 @@ class MachineStateUpdate {
 
 class DataUpdate {
  public:
-  DataUpdate(UpdateType type) : m_type{type} {}
+  DataUpdate(UpdateType type)
+      : m_type{type} {}
 
   bool apply(Context* ctx) {
     switch (m_type) {
-      case UpdateType::BLE_STATE_UPDATE:
+      case UpdateType::ble_state_update:
         return m_bleStateUpdate.apply(ctx);
-      case UpdateType::WEIGHT_UPDATE:
+      case UpdateType::weight_update:
         return m_weightUpdate.apply(ctx);
-      case UpdateType::SAMPLE_UPDATE:
+      case UpdateType::sample_update:
         return m_sampleUpdate.apply(ctx);
-      case UpdateType::MACHINE_STATE_UPDATE:
+      case UpdateType::machine_state_update:
         return m_machineStateUpdate.apply(ctx);
+      case UpdateType::restart_update:
+        return m_restartUpdate.apply(ctx);
+      case UpdateType::water_level_update:
+        return m_waterLevelUpdate.apply(ctx);
+      case UpdateType::screen_update:
+        return m_screenUpdate.apply(ctx);
+      case UpdateType::config_update:
+        return m_configUpdate.apply(ctx);
       default:
         return false;
     }
   }
 
   static DataUpdate newConnectionStatus(DeviceType d, BLEState s) {
-    auto u = DataUpdate{UpdateType::BLE_STATE_UPDATE};
+    auto u = DataUpdate{UpdateType::ble_state_update};
     u.m_bleStateUpdate = BLEStateUpdate(d, s);
     return u;
   }
 
   static DataUpdate newWeightCommand(double weight) {
-    auto u = DataUpdate{UpdateType::WEIGHT_UPDATE};
+    auto u = DataUpdate{UpdateType::weight_update};
     u.m_weightUpdate = WeightUpdate{weight};
     return u;
   }
 
   static DataUpdate newSampleUpdate(Sample sample) {
-    auto u = DataUpdate{UpdateType::SAMPLE_UPDATE};
+    auto u = DataUpdate{UpdateType::sample_update};
     u.m_sampleUpdate = SampleUpdate{sample};
     return u;
   }
 
   static DataUpdate newMachineStateUpdate(MachineState state, MachineSubstate subState) {
-    auto u = DataUpdate{UpdateType::MACHINE_STATE_UPDATE};
+    auto u = DataUpdate{UpdateType::machine_state_update};
     u.m_machineStateUpdate = MachineStateUpdate{state, subState};
+    return u;
+  }
+
+  static DataUpdate newRestartUpdate() {
+    auto u = DataUpdate{UpdateType::restart_update};
+    u.m_restartUpdate = RestartUpdate{};
+    return u;
+  }
+
+  static DataUpdate newWaterLevelUpdate(int level, int threshold) {
+    auto u = DataUpdate{UpdateType::water_level_update};
+    u.m_waterLevelUpdate = WaterLevelUpdate{level, threshold};
+    return u;
+  }
+
+  static DataUpdate newScreenUpdate(ScreenID screen) {
+    auto u = DataUpdate{UpdateType::screen_update};
+    u.m_screenUpdate = ScreenUpdate{screen};
+    return u;
+  }
+
+  static DataUpdate newConfigUpdate(Config config) {
+    auto u = DataUpdate{UpdateType::config_update};
+    u.m_configUpdate = ConfigUpdate(config);
     return u;
   }
 
@@ -282,6 +400,10 @@ class DataUpdate {
     WeightUpdate m_weightUpdate;
     SampleUpdate m_sampleUpdate;
     MachineStateUpdate m_machineStateUpdate;
+    RestartUpdate m_restartUpdate;
+    WaterLevelUpdate m_waterLevelUpdate;
+    ScreenUpdate m_screenUpdate;
+    ConfigUpdate m_configUpdate;
   };
 };
 
