@@ -1,7 +1,7 @@
 ---
 layout: home
 ---
-<script type="module" src="https://unpkg.com/esp-web-tools@8.0.6/dist/web/install-button.js?module"></script>
+<script type="module" src="https://unpkg.com/esp-web-tools@9.0.4/dist/web/install-button.js?module"></script>
 
 # Supported Platforms
 
