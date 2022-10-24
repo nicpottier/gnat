@@ -35,7 +35,7 @@ class ConfigBackground : public Widget {
     tft.setTextColor(theme.text_color, theme.dash_bg_color);
     tft.drawString("Configuration", 10, 10);
     tft.setTextDatum(TR_DATUM);
-    tft.drawString(SPLASH_VERSION, 10, m_width - 10);
+    tft.drawString(SPLASH_VERSION, m_width - 10, 10);
     tft.setTextDatum(TL_DATUM);
   }
 
