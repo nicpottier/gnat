@@ -82,14 +82,15 @@ GNAT development takes place on [Github](https://github.com/nicpottier/gnat) and
     {% endfor %}
   </td>
 
-  <td style="text-align:center;">    
+  <!-- <td style="text-align:center;">    
     {% for platform in release.platforms %}
     {% if platform == "ttgo-s3" %}
 <esp-web-install-button manifest="assets/firmwares/{{release.version}}/gnat_{{platform}}_{{release.version}}.json">
 <button type="button" class="btn btn-blue" slot="activate">INSTALL</button></esp-web-install-button>
     {% endif %}
     {% endfor %}
-  </td>  
+  </td>
+  -->  
 
 </tr>
 
