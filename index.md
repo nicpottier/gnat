@@ -42,7 +42,7 @@ will need to provide your own or provide constant power.
 
 The much larger display makes this the nicest option for running GNAT currently and is where most of the development is focusing but you will need to get a case at the very least and a battery as well if you don't want to provide separate power.
 
-[Purchase from Amazon](https://www.amazon.com/LILYGO-T-Display-S3-ESP32-S3-Development-Soldered/dp/B0BF542H39/)
+[Purchase from Amazon](https://www.amazon.com/LILYGO-T-Display-S3-ESP32-S3-Display-Development/dp/B0B7X5RVTH/)
 
 <br style="clear: both">
 
