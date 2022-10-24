@@ -12,6 +12,9 @@
 #define PROGMEM
 #endif
 
+const unsigned int splash_sprite_height = 55;
+const unsigned int splash_sprite_width = 159;
+
 const unsigned short splash_sprite[8745] PROGMEM = {
     0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0xFFFF, 0xFFFF, 0xFFFF,
     0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,  // 0x0010 (16) pixels

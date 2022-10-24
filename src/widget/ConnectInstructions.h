@@ -26,12 +26,12 @@ class ConnectInstructions : public Widget {
     tft.setFreeFont(&FreeSans9pt7b);
     tft.setTextColor(theme.text_color, theme.bg_color);
     tft.setTextDatum(TC_DATUM);
-    tft.drawString("Connect to", centerX, 15);
+    tft.drawString("Connect to", centerX, m_height / 2 - 50);
 
     // TODO: investigate replacing with drawBitmap which would be way smaller
-    tft.pushImage(40, 40, 159, 55, splash_sprite);
+    tft.pushImage((m_width - 159) / 2, (m_height - 55) / 2, splash_sprite_width, splash_sprite_height, splash_sprite);
 
-    tft.drawString("WIFI AP to configure", centerX, 105);
+    tft.drawString("WIFI AP to configure", centerX, m_height / 2 + 35);
 
     tft.setTextDatum(TL_DATUM);
   }

@@ -25,14 +25,18 @@ class ConfigBackground : public Widget {
     tft.fillRoundRect(0, 0, m_width, 35, 10, theme.dash_bg_color);
     tft.fillRect(0, 10, m_width, 25, theme.dash_bg_color);
     tft.drawRect(0, 0, m_width, 35, theme.dash_border_color);
-    tft.fillRoundRect(0, 35, m_width, 100, 10, theme.dash_bg_color);
+    tft.fillRoundRect(0, 35, m_width, m_height - 35, 10, theme.dash_bg_color);
     tft.fillRect(0, 35, m_width, 50, theme.dash_bg_color);
-    tft.fillRoundRect(3, 38, m_width - 6, 94, 10, theme.bg_color);
+    tft.fillRoundRect(3, 38, m_width - 6, m_height - 35 - 6, 10, theme.bg_color);
 
     tft.setFreeFont(&FreeSans9pt7b);
+
+    tft.setTextDatum(TL_DATUM);
     tft.setTextColor(theme.text_color, theme.dash_bg_color);
     tft.drawString("Configuration", 10, 10);
-    tft.drawString(SPLASH_VERSION, 235 - strlen(SPLASH_VERSION) * 9, 10);
+    tft.setTextDatum(TR_DATUM);
+    tft.drawString(SPLASH_VERSION, m_width - 10, 10);
+    tft.setTextDatum(TL_DATUM);
   }
 
  private:

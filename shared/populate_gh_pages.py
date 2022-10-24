@@ -74,6 +74,7 @@ version: $VERSION
 platforms:
     - ttgo
     - m5stick
+    - ttgo-s3
 ---
 """
 

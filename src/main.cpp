@@ -38,13 +38,16 @@ DNSServer g_dnsServer;
 AsyncWebServer g_server(80);
 
 // the tft we draw to
-TFT_eSPI tft = TFT_eSPI(135, 240);
+TFT_eSPI tft = TFT_eSPI();
 
 // The build version comes from an environment variable. Use the VERSION
 // define wherever the version is needed.
 #define STRINGIZER(arg) #arg
 #define STR_VALUE(arg) STRINGIZER(arg)
 #define VERSION STR_VALUE(BUILD_VERSION)
+
+const int screenWidth = TFT_HEIGHT;
+const int screenHeight = TFT_WIDTH;
 
 static NimBLEScan* pBLEScan;
 static ble::Device* devices[2];
@@ -62,7 +65,7 @@ const int pwmFreq = 5000;
 const int pwmResolution = 8;
 const int pwmLedChannelTFT = 0;
 
-auto ctx = data::Context{};
+auto g_ctx = data::Context{};
 
 class BLEAdCallback : public NimBLEAdvertisedDeviceCallbacks {
   void onResult(NimBLEAdvertisedDevice* d) {
@@ -190,7 +193,7 @@ class CaptiveRequestHandler : public AsyncWebHandler {
     Serial.printf("[%d] %s: %s\n", xPortGetCoreID(), request->methodToString(), url);
 
     // make sure our config screen is shown on any request
-    if (ctx.screen == ScreenID::connect) {
+    if (g_ctx.screen == ScreenID::connect) {
       auto screen = data::DataUpdate::newScreenUpdate(ScreenID::config);
       if (xQueueSend(updateQ, &screen, 10) != pdTRUE) {
         Serial.println("error queuing screen update");
@@ -233,7 +236,7 @@ class CaptiveRequestHandler : public AsyncWebHandler {
     }
 
     else {
-      sendConfigRedirect(request, ctx.config, "");
+      sendConfigRedirect(request, g_ctx.config, "");
     }
   }
 };
@@ -275,9 +278,9 @@ void IRAM_ATTR menuButtonPressed() {
   // TODO: read current state instead and only react on button up?
   if (millis() - lastMenuPress > 500) {
     auto nextScreen = ScreenID::brew;
-    if (ctx.screen == ScreenID::brew) {
+    if (g_ctx.screen == ScreenID::brew) {
       nextScreen = ScreenID::connect;
-    } else if (ctx.screen == ScreenID::connect) {
+    } else if (g_ctx.screen == ScreenID::connect) {
       nextScreen = ScreenID::config;
     }
     auto screen = data::DataUpdate::newScreenUpdate(nextScreen);
@@ -296,7 +299,7 @@ void setup() {
   Serial.begin(115200);
   Serial.printf("[%d] Setup - Version: %s\n", xPortGetCoreID(), VERSION);
 
-  ctx.config = readConfig();
+  g_ctx.config = readConfig();
 
   foundDeviceQ = xQueueCreate(10, sizeof(ble::FoundDevice));
   updateQ = xQueueCreate(100, sizeof(data::DataUpdate));
@@ -308,18 +311,18 @@ void setup() {
   devices[1] = de1;
 
   s_brewScreen = new Screen{ScreenID::brew};
-  s_brewScreen->addWidget(new widget::BrewBackground{240, 135});
+  s_brewScreen->addWidget(new widget::BrewBackground{screenWidth, screenHeight});
   s_brewScreen->addWidget(new widget::ScaleStatus{5, 7, 80});
-  s_brewScreen->addWidget(new widget::MachineStatus{85, 7, 80});
-  s_brewScreen->addWidget(new widget::ShotTimer{165, 7, 80});
-  s_brewScreen->addWidget(new widget::ShotGraph{5, 40, 230, 90});
+  s_brewScreen->addWidget(new widget::MachineStatus{screenWidth / 3 + 5, 7, 80});
+  s_brewScreen->addWidget(new widget::ShotTimer{(screenWidth / 3) * 2 + 5, 7, 80});
+  s_brewScreen->addWidget(new widget::ShotGraph{5, 40, screenWidth - 10, screenHeight - 40});
 
   s_connectScreen = new Screen{ScreenID::connect};
-  s_connectScreen->addWidget(new widget::ConnectInstructions{240, 135});
+  s_connectScreen->addWidget(new widget::ConnectInstructions{screenWidth, screenHeight});
 
   s_configScreen = new Screen{ScreenID::config};
-  s_configScreen->addWidget(new widget::ConfigBackground{240, 135});
-  s_configScreen->addWidget(new widget::ConfigFields{10, 50, 220, 900});
+  s_configScreen->addWidget(new widget::ConfigBackground{screenWidth, screenHeight});
+  s_configScreen->addWidget(new widget::ConfigFields{10, 50, screenWidth - 20, screenHeight - 40});
 
   /** *Optional* Sets the filtering mode used by the scanner in the BLE
    * controller.
@@ -340,6 +343,7 @@ void setup() {
    *
    *  Can only be used BEFORE calling NimBLEDevice::init.
    */
+
   NimBLEDevice::setScanFilterMode(CONFIG_BTDM_SCAN_DUPL_TYPE_DATA_DEVICE);
 
   /** *Optional* Sets the scan filter cache size in the BLE controller.
@@ -353,7 +357,7 @@ void setup() {
   NimBLEDevice::setScanDuplicateCacheSize(10);
 
   NimBLEDevice::init("");
-
+  NimBLEDevice::setPower(ESP_PWR_LVL_P9);
   pBLEScan = NimBLEDevice::getScan();  // create new scan
 
   // Set the callback for when devices are discovered, no duplicates.
@@ -420,18 +424,18 @@ void loop() {
 
   while (true) {
     while (xQueueReceive(updateQ, (void*)&d, 0) == pdTRUE) {
-      d.apply(&ctx);
+      d.apply(&g_ctx);
     }
 
     // ready for our next tick?
     if (millis() > nextTick) {
       // paint all our screens
-      s_brewScreen->tickAndPaint(ctx, tft);
-      s_connectScreen->tickAndPaint(ctx, tft);
-      s_configScreen->tickAndPaint(ctx, tft);
+      s_brewScreen->tickAndPaint(g_ctx, tft);
+      s_connectScreen->tickAndPaint(g_ctx, tft);
+      s_configScreen->tickAndPaint(g_ctx, tft);
 
       // we just went to sleep, turn off the screen
-      if (ctx.machineState == MachineState::sleep && lastState != ctx.machineState) {
+      if (g_ctx.machineState == MachineState::sleep && lastState != g_ctx.machineState) {
 #ifdef M5_STICK
         M5.Axp.ScreenSwitch(false);
 #endif
@@ -439,7 +443,7 @@ void loop() {
 
       // just left sleep, turn on screen
       if ((lastState == MachineState::sleep || lastState == MachineState::unknown) &&
-          ctx.machineState != MachineState::sleep) {
+          g_ctx.machineState != MachineState::sleep) {
 #ifdef M5_STICK
         M5.Axp.ScreenSwitch(true);
 #endif
@@ -447,62 +451,62 @@ void loop() {
       }
 
       // if we just switched into brewing espresso, tare our scale
-      if ((ctx.machineState != lastState && ctx.machineState == MachineState::espresso) ||
-          (ctx.machineState == MachineState::espresso && lastSubstate < MachineSubstate::preinfusing &&
-           ctx.machineSubstate >= MachineSubstate::preinfusing)) {
-        if (ctx.tickID - lastTare > CMD_TIMEOUT) {
+      if ((g_ctx.machineState != lastState && g_ctx.machineState == MachineState::espresso) ||
+          (g_ctx.machineState == MachineState::espresso && lastSubstate < MachineSubstate::preinfusing &&
+           g_ctx.machineSubstate >= MachineSubstate::preinfusing)) {
+        if (g_ctx.tickID - lastTare > CMD_TIMEOUT) {
           auto tare = cmd::CommandRequest::newTareScaleCommand();
           xQueueSend(cmdQ, &tare, 10);
-          lastTare = ctx.tickID;
+          lastTare = g_ctx.tickID;
         }
       }
 
       // if we are brewing and we are over 36grams, stop
-      if (ctx.machineState == MachineState::espresso && ctx.machineSubstate == MachineSubstate::pouring &&
-          ctx.currentWeight > ctx.config.getStopWeight() - 1) {
-        if (ctx.tickID - lastStop > CMD_TIMEOUT) {
+      if (g_ctx.machineState == MachineState::espresso && g_ctx.machineSubstate == MachineSubstate::pouring &&
+          g_ctx.currentWeight > g_ctx.config.getStopWeight() - 1) {
+        if (g_ctx.tickID - lastStop > CMD_TIMEOUT) {
           auto stop = cmd::CommandRequest::newStopMachineCommand();
           xQueueSend(cmdQ, &stop, 10);
-          lastStop = ctx.tickID;
+          lastStop = g_ctx.tickID;
         }
       }
 
       // switching into idle, reset our timeout
-      if (ctx.machineState == MachineState::idle && lastState != MachineState::idle) {
+      if (g_ctx.machineState == MachineState::idle && lastState != MachineState::idle) {
         idleStart = millis();
       }
 
       // if we haven't brewed anything for a bit, sleep
-      if (ctx.machineState == MachineState::idle && millis() - idleStart > ctx.config.getSleepTime() * 60 * 1000) {
-        if (ctx.tickID - lastSleep > CMD_TIMEOUT) {
+      if (g_ctx.machineState == MachineState::idle && millis() - idleStart > g_ctx.config.getSleepTime() * 60 * 1000) {
+        if (g_ctx.tickID - lastSleep > CMD_TIMEOUT) {
           auto sleep = cmd::CommandRequest::newSleepMachineCommand();
           xQueueSend(cmdQ, &sleep, 10);
-          lastSleep = ctx.tickID;
+          lastSleep = g_ctx.tickID;
         }
       }
 
       // if it's time to reboot, do so
-      if (ctx.restartTickID > 0 && ctx.tickID > ctx.restartTickID) {
+      if (g_ctx.restartTickID > 0 && g_ctx.tickID > g_ctx.restartTickID) {
         ESP.restart();
       }
 
       // handle our AP state based on what screen we are on
-      if (lastScreen == ScreenID::brew && (ctx.screen == ScreenID::connect || ctx.screen == ScreenID::config)) {
+      if (lastScreen == ScreenID::brew && (g_ctx.screen == ScreenID::connect || g_ctx.screen == ScreenID::config)) {
         startAP();
-      } else if (ctx.screen == ScreenID::brew && lastScreen != ScreenID::unknown && lastScreen != ScreenID::brew) {
+      } else if (g_ctx.screen == ScreenID::brew && lastScreen != ScreenID::unknown && lastScreen != ScreenID::brew) {
         stopAP();
       }
 
-      lastScreen = ctx.screen;
-      lastState = ctx.machineState;
-      lastSubstate = ctx.machineSubstate;
+      lastScreen = g_ctx.screen;
+      lastState = g_ctx.machineState;
+      lastSubstate = g_ctx.machineSubstate;
 
       // increment our tick id and save our last tick
-      ctx.tickID++;
+      g_ctx.tickID++;
       lastTick = millis();
       nextTick = lastTick + TICK_TARGET;
 
-      if (ctx.screen == ScreenID::config || ctx.screen == ScreenID::connect) {
+      if (g_ctx.screen == ScreenID::config || g_ctx.screen == ScreenID::connect) {
         g_dnsServer.processNextRequest();
       }
     }
