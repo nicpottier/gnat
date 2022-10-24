@@ -32,6 +32,20 @@ This is a fine choice if you want to print your own case and supply your own bat
 
 <br style="clear: both">
 
+## TTGO-S3 T-Display
+
+<img src="assets/img/ttgo-s3.png" style="float: left; padding: 20px;"/>
+
+The TTGO T-Display S3 is the younger, more handsome brother to the TTGO above. It features an updated ESP32-S3 processor and has a much larger 1.9 inch
+screen with a 320x170 resolution. It also sports 16MB of flash. Like the TTGO it is sold without a battery or case so you 
+will need to provide your own or provide constant power.
+
+The much larger display makes this the nicest option for running GNAT currently and is where most of the development is focusing but you will need to get a case at the very least and a battery as well if you don't want to provide separate power.
+
+[Purchase from Amazon](https://www.amazon.com/LILYGO-T-Display-S3-ESP32-S3-Development-Soldered/dp/B0BF542H39/)
+
+<br style="clear: both">
+
 # GNAT Releases
 
 GNAT development takes place on [Github](https://github.com/nicpottier/gnat) and new releases are bundled and are available to install here. You will just need a cable and a Chrome browser to flash your device.
@@ -42,6 +56,7 @@ GNAT development takes place on [Github](https://github.com/nicpottier/gnat) and
   <th style="text-align:right;">Version</th>
   <th>M5StickC</th>
   <th>TTGO</th>
+  <th>TTGO-S3</th>
 </tr>    
 
 {% for release in site.releases reversed %}
@@ -66,6 +81,15 @@ GNAT development takes place on [Github](https://github.com/nicpottier/gnat) and
     {% endif %}
     {% endfor %}
   </td>
+
+  <td style="text-align:center;">    
+    {% for platform in release.platforms %}
+    {% if platform == "ttgo-s3" %}
+<esp-web-install-button manifest="assets/firmwares/{{release.version}}/gnat_{{platform}}_{{release.version}}.json">
+<button type="button" class="btn btn-blue" slot="activate">INSTALL</button></esp-web-install-button>
+    {% endif %}
+    {% endfor %}
+  </td>  
 
 </tr>
 
