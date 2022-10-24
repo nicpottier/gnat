@@ -5,7 +5,7 @@
         "new_install_skip_erase": false,
         "builds": [
             {
-                "chipFamily": "ESP32",
+                "chipFamily": "ESP32-S3",
                 "parts": [
                     {
                         "path": "https://nicpottier.github.io/gnat/assets/esp32/bootloader_dio_40m.bin",
