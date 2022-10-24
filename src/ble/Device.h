@@ -9,7 +9,10 @@ namespace ble {
 
 class Device : public NimBLEClientCallbacks {
  public:
-  Device(DeviceType t, QueueHandle_t updateQ, QueueHandle_t cmdQ) : m_type{t}, m_updateQ{updateQ}, m_cmdQ{cmdQ} {}
+  Device(DeviceType t, QueueHandle_t updateQ, QueueHandle_t cmdQ)
+      : m_type{t},
+        m_updateQ{updateQ},
+        m_cmdQ{cmdQ} {}
 
   virtual bool setupConnection(NimBLEClient* c) = 0;
   virtual void teardownConnection(NimBLEClient* c) = 0;
@@ -36,12 +39,14 @@ class Device : public NimBLEClientCallbacks {
     setState(BLEState::disconnected);
   };
 
-  bool isDisconnected() { return (m_state == BLEState::disconnected || !m_client || !m_client->isConnected()); }
+  bool isDisconnected() {
+    return (m_state == BLEState::disconnected || !m_client || !m_client->isConnected());
+  }
 
   bool connect(NimBLEClient* c) {
     c->setClientCallbacks(this, false);
     setState(BLEState::connecting);
-    if (c->connect() && c->isConnected()) {
+    if (c->connect()) {
       m_client = c;
       return true;
     } else {
@@ -51,7 +56,9 @@ class Device : public NimBLEClientCallbacks {
     }
   }
 
-  DeviceType getType() { return m_type; }
+  DeviceType getType() {
+    return m_type;
+  }
 
   void queueCommand(cmd::CommandRequest c) {
     if (xQueueSend(m_cmdQ, &c, 10) != pdTRUE) {

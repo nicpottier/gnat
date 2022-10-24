@@ -160,7 +160,7 @@ void bleLoop(void* parameters) {
     }
 
     // sleep a few cycles to reset the watchdog
-    vTaskDelay(10);
+    vTaskDelay(40);
   }
 }
 
@@ -357,7 +357,6 @@ void setup() {
   NimBLEDevice::setScanDuplicateCacheSize(10);
 
   NimBLEDevice::init("");
-  NimBLEDevice::setPower(ESP_PWR_LVL_P9);
   pBLEScan = NimBLEDevice::getScan();  // create new scan
 
   // Set the callback for when devices are discovered, no duplicates.
