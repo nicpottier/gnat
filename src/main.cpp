@@ -299,6 +299,9 @@ void setup() {
   Serial.begin(115200);
   Serial.printf("[%d] Setup - Version: %s\n", xPortGetCoreID(), VERSION);
 
+  // turn off caching to the serial port.. S3 gets very slow if not connected
+  Serial.setTxTimeoutMs(0);
+
   g_ctx.config = readConfig();
 
   foundDeviceQ = xQueueCreate(10, sizeof(ble::FoundDevice));
