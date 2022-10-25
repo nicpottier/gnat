@@ -34,6 +34,8 @@
 #define SSID "GNAT"
 #endif
 
+const uint8_t BACKLIGHT_ON = 100;
+
 DNSServer g_dnsServer;
 AsyncWebServer g_server(80);
 
@@ -61,9 +63,9 @@ static Screen* s_brewScreen;
 static Screen* s_connectScreen;
 static Screen* s_configScreen;
 
-const int pwmFreq = 5000;
-const int pwmResolution = 8;
-const int pwmLedChannelTFT = 0;
+const int BACKLIGHT_PWM_FREQ = 10000;
+const int BACKLIGHT_PWM_RESOLUTION = 8;
+const int BACKLIGHT_PWM_CHANNEL = 0;
 
 auto g_ctx = data::Context{};
 
@@ -383,11 +385,11 @@ void setup() {
   M5.Axp.ScreenBreath(7);
   tft = M5.Lcd;
 #else
-  ledcSetup(pwmLedChannelTFT, pwmFreq, pwmResolution);
-  ledcAttachPin(TFT_BL, pwmLedChannelTFT);
-  ledcWrite(pwmLedChannelTFT, 100);
-
   tft.init();
+
+  ledcSetup(BACKLIGHT_PWM_CHANNEL, BACKLIGHT_PWM_FREQ, BACKLIGHT_PWM_RESOLUTION);
+  ledcAttachPin(TFT_BL, BACKLIGHT_PWM_CHANNEL);
+  ledcWrite(BACKLIGHT_PWM_CHANNEL, BACKLIGHT_ON);
 #endif
 
   pinMode(MENU_BUTTON_PIN, INPUT_PULLUP);
@@ -440,6 +442,9 @@ void loop() {
       if (g_ctx.machineState == MachineState::sleep && lastState != g_ctx.machineState) {
 #ifdef M5_STICK
         M5.Axp.ScreenSwitch(false);
+#else
+        ledcWrite(BACKLIGHT_PWM_CHANNEL, 0);
+        tft.writecommand(ST7789_DISPOFF);
 #endif
       }
 
@@ -448,6 +453,9 @@ void loop() {
           g_ctx.machineState != MachineState::sleep) {
 #ifdef M5_STICK
         M5.Axp.ScreenSwitch(true);
+#else
+        ledcWrite(BACKLIGHT_PWM_CHANNEL, BACKLIGHT_ON);
+        tft.writecommand(ST7789_DISPON);
 #endif
         idleStart = millis();
       }
