@@ -448,6 +448,10 @@ void loop() {
         ledcWrite(BACKLIGHT_PWM_CHANNEL, 0);
         tft.writecommand(ST7789_DISPOFF);
 #endif
+
+        // send a sleep command to our BLE devices
+        auto sleep = cmd::CommandRequest::newSleepCommand();
+        xQueueSend(cmdQ, &sleep, 10);
       }
 
       // just left sleep, turn on screen
@@ -460,6 +464,10 @@ void loop() {
         tft.writecommand(ST7789_DISPON);
 #endif
         idleStart = millis();
+
+        // send a wake command to our BLE devices
+        auto wake = cmd::CommandRequest::newWakeCommand();
+        xQueueSend(cmdQ, &wake, 10);
       }
 
       // if we just switched into brewing espresso, tare our scale
@@ -491,7 +499,7 @@ void loop() {
       // if we haven't brewed anything for a bit, sleep
       if (g_ctx.machineState == MachineState::idle && millis() - idleStart > g_ctx.config.getSleepTime() * 60 * 1000) {
         if (g_ctx.tickID - lastSleep > CMD_TIMEOUT) {
-          auto sleep = cmd::CommandRequest::newSleepMachineCommand();
+          auto sleep = cmd::CommandRequest::newSleepCommand();
           xQueueSend(cmdQ, &sleep, 10);
           lastSleep = g_ctx.tickID;
         }
