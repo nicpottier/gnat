@@ -16,7 +16,8 @@ const auto skale_display_weight = 0xEC;
 
 class Skale : public Device, public Scale {
  public:
-  Skale(QueueHandle_t updateQ, QueueHandle_t cmdQ) : Device(DeviceType::scale, updateQ, cmdQ) {}
+  Skale(QueueHandle_t updateQ, QueueHandle_t cmdQ)
+      : Device(DeviceType::scale, updateQ, cmdQ) {}
 
   void scaleUpdate(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* pData, size_t length, bool isNotify) {
     if (length > 4) {
@@ -26,23 +27,42 @@ class Skale : public Device, public Scale {
   }
 
   bool tare() override {
-    if (!m_cmdCharacteristic) {
+    if (!m_cmdChar) {
       return false;
     }
 
-    return m_cmdCharacteristic->writeValue(skale_tare_cmd);
+    return m_cmdChar->writeValue(skale_tare_cmd);
   }
 
   bool init() {
-    if (!m_cmdCharacteristic) {
+    if (!m_cmdChar) {
       return false;
     }
 
-    return m_cmdCharacteristic->writeValue(skale_tare_cmd) && m_cmdCharacteristic->writeValue(skale_display_on_cmd) &&
-           m_cmdCharacteristic->writeValue(skale_display_weight) && m_cmdCharacteristic->writeValue(skale_grams);
+    return m_cmdChar->writeValue(skale_tare_cmd) && m_cmdChar->writeValue(skale_display_on_cmd) &&
+           m_cmdChar->writeValue(skale_display_weight) && m_cmdChar->writeValue(skale_grams);
   }
 
-  void teardownConnection(NimBLEClient* c) { m_cmdCharacteristic = nullptr; }
+  bool sleep() {
+    if (!m_cmdChar) {
+      return false;
+    }
+
+    return m_cmdChar->writeValue(skale_display_off_cmd);
+  }
+
+  bool wake() {
+    if (!m_cmdChar) {
+      return false;
+    }
+
+    return m_cmdChar->writeValue(skale_tare_cmd) && m_cmdChar->writeValue(skale_display_on_cmd) &&
+           m_cmdChar->writeValue(skale_display_weight) && m_cmdChar->writeValue(skale_grams);
+  }
+
+  void teardownConnection(NimBLEClient* c) {
+    m_cmdChar = nullptr;
+  }
 
   bool setupConnection(NimBLEClient* c) {
     c->setConnectTimeout(1);
@@ -69,7 +89,7 @@ class Skale : public Device, public Scale {
 
           if (ch->getUUID().toString() == skale_cmd_uuid) {
             // characteristic is held by service, held by client, held by us, so should be safe
-            m_cmdCharacteristic = ch;
+            m_cmdChar = ch;
           }
         }
 
@@ -92,7 +112,7 @@ class Skale : public Device, public Scale {
     }
 
     // if we didn't find our command characteristic, fail
-    if (!m_cmdCharacteristic) {
+    if (!m_cmdChar) {
       return false;
     }
 
@@ -101,11 +121,17 @@ class Skale : public Device, public Scale {
     return true;
   }
 
-  void selfRegister(Devices* devices) { devices->setScale(this); }
-  bool shouldConnect(NimBLEAdvertisedDevice* d) { return (d->getName() == skale_name); }
-  const std::string getName() { return skale_name; }
+  void selfRegister(Devices* devices) {
+    devices->setScale(this);
+  }
+  bool shouldConnect(NimBLEAdvertisedDevice* d) {
+    return (d->getName() == skale_name);
+  }
+  const std::string getName() {
+    return skale_name;
+  }
 
  private:
-  NimBLERemoteCharacteristic* m_cmdCharacteristic = nullptr;
+  NimBLERemoteCharacteristic* m_cmdChar = nullptr;
 };
 };  // namespace ble

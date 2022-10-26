@@ -10,7 +10,8 @@ enum class CommandType {
   SCALE_TARE,
   SCALE_DISPLAY,
   SCALE_GRAMS,
-  MACHINE_SLEEP,
+  SLEEP,
+  WAKE,
   MACHINE_STOP,
 };
 
@@ -50,21 +51,50 @@ class StopMachineCommand {
   }
 };
 
-class SleepMachineCommand {
+class SleepCommand {
  public:
-  SleepMachineCommand(){};
+  SleepCommand(){};
 
   bool execute(ble::Devices *devices) {
+    auto success = false;
     auto m = devices->getMachine();
-    if (!m) return false;
-    Serial.println("SENDING MACHINE SLEEP");
-    return m->sleep();
+    if (m) {
+      success = m->sleep();
+    }
+
+    auto s = devices->getScale();
+    if (s) {
+      success &= s->sleep();
+    }
+
+    return success;
+  }
+};
+
+class WakeCommand {
+ public:
+  WakeCommand(){};
+
+  bool execute(ble::Devices *devices) {
+    auto success = false;
+    auto m = devices->getMachine();
+    if (m) {
+      success = m->wake();
+    }
+
+    auto s = devices->getScale();
+    if (s) {
+      success &= s->wake();
+    }
+
+    return success;
   }
 };
 
 class CommandRequest {
  public:
-  CommandRequest(CommandType type) : m_type{type} {}
+  CommandRequest(CommandType type)
+      : m_type{type} {}
 
   bool execute(ble::Devices *devices) {
     switch (m_type) {
@@ -74,8 +104,10 @@ class CommandRequest {
         return m_tareScale.execute(devices);
       case CommandType::MACHINE_STOP:
         return m_stopMachine.execute(devices);
-      case CommandType::MACHINE_SLEEP:
-        return m_sleepMachine.execute(devices);
+      case CommandType::SLEEP:
+        return m_sleep.execute(devices);
+      case CommandType::WAKE:
+        return m_wake.execute(devices);
       case CommandType::EMPTY:
         return true;
       default:
@@ -83,7 +115,9 @@ class CommandRequest {
     }
   }
 
-  CommandType getType() { return m_type; }
+  CommandType getType() {
+    return m_type;
+  }
 
   static CommandRequest newTareScaleCommand() {
     auto c = CommandRequest{CommandType::SCALE_TARE};
@@ -103,9 +137,15 @@ class CommandRequest {
     return c;
   }
 
-  static CommandRequest newSleepMachineCommand() {
-    auto c = CommandRequest{CommandType::MACHINE_SLEEP};
-    c.m_sleepMachine = SleepMachineCommand{};
+  static CommandRequest newSleepCommand() {
+    auto c = CommandRequest{CommandType::SLEEP};
+    c.m_sleep = SleepCommand{};
+    return c;
+  }
+
+  static CommandRequest newWakeCommand() {
+    auto c = CommandRequest{CommandType::WAKE};
+    c.m_wake = WakeCommand{};
     return c;
   }
 
@@ -115,7 +155,8 @@ class CommandRequest {
     TareScaleCommand m_tareScale;
     InitScaleCommand m_initScale;
     StopMachineCommand m_stopMachine;
-    SleepMachineCommand m_sleepMachine;
+    SleepCommand m_sleep;
+    WakeCommand m_wake;
   };
 };
 
