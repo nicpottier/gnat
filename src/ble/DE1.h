@@ -20,17 +20,39 @@ class DE1 : public Device, public Machine {
       : Device(DeviceType::machine, updateQ, cmdQ) {}
 
   bool stop() {
-    if (!m_cmdCharacteristic) {
+    if (!m_cmdChar) {
       return false;
     }
-    return m_cmdCharacteristic->writeValue(de1_stop_cmd);
+    return m_cmdChar->writeValue(de1_stop_cmd);
   }
 
   bool sleep() {
-    if (!m_cmdCharacteristic) {
+    if (!m_stateChar || !m_cmdChar) {
       return false;
     }
-    return m_cmdCharacteristic->writeValue(de1_sleep_cmd);
+
+    // get our current state
+    auto value = m_stateChar->readValue();
+
+    if (value.length() != 2) {
+      return false;
+    }
+
+    // if we are already going to sleep, skip this
+    auto state = MachineState(value.data()[0]);
+    if (state == MachineState::going_to_sleep || state == MachineState::sleep) {
+      return true;
+    }
+
+    return m_cmdChar->writeValue(de1_sleep_cmd);
+  }
+
+  bool wake() {
+    if (!m_cmdChar) {
+      return false;
+    }
+    // TODO: turn off fan
+    return true;
   }
 
   void stateUpdate(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* d, size_t length, bool isNotify) {
@@ -98,7 +120,7 @@ class DE1 : public Device, public Machine {
         }
 
         if (ch->getUUID().toString() == de1_requested_state_uuid) {
-          m_cmdCharacteristic = ch;
+          m_cmdChar = ch;
         }
 
         if (ch->canNotify()) {
@@ -110,9 +132,16 @@ class DE1 : public Device, public Machine {
             Serial.print(" STATE");
 
             auto value = ch->readValue();
+
+            if (value.length() != 2) {
+              continue;
+            }
+
             int state = value.data()[0];
             int subState = value.data()[1];
             queueUpdate(data::DataUpdate::newMachineStateUpdate((MachineState)state, (MachineSubstate)subState));
+
+            m_stateChar = ch;
           }
           // sample update
           if (ch->getUUID().toString() == de1_sample_uuid) {
@@ -149,7 +178,8 @@ class DE1 : public Device, public Machine {
   }
 
  private:
-  NimBLERemoteCharacteristic* m_cmdCharacteristic = nullptr;
+  NimBLERemoteCharacteristic* m_cmdChar = nullptr;
+  NimBLERemoteCharacteristic* m_stateChar = nullptr;
 };
 
 }  // namespace ble
