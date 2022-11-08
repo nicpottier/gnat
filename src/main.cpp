@@ -444,9 +444,13 @@ void loop() {
       if (g_ctx.machineState == MachineState::sleep && lastState != g_ctx.machineState) {
 #ifdef M5_STICK
         M5.Axp.ScreenSwitch(false);
-#else
+#endif        
+#ifdef TTGO
         ledcWrite(BACKLIGHT_PWM_CHANNEL, 0);
         tft.writecommand(ST7789_DISPOFF);
+#endif
+#ifdef ESP32_2432S028R
+  digitalWrite(TFT_BL, LOW);
 #endif
 
         // send a sleep command to our BLE devices
@@ -459,7 +463,8 @@ void loop() {
           g_ctx.machineState != MachineState::sleep) {
 #ifdef M5_STICK
         M5.Axp.ScreenSwitch(true);
-#else
+#endif
+#ifdef TTGO
         ledcWrite(BACKLIGHT_PWM_CHANNEL, BACKLIGHT_ON);
         tft.writecommand(ST7789_DISPON);
 #endif
