@@ -1,0 +1,13 @@
+# _config.yml
+
+plugins:
+  - jekyll-remote-theme
+
+title: "GNAT"
+remote_theme: just-the-docs/just-the-docs@v0.4.0.rc3
+collections:
+  releases:
+    sort_by: version
+
+color_scheme: dark
+search_enabled: false
