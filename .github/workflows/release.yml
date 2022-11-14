@@ -47,19 +47,31 @@ jobs:
           name: firmware
           path: .pio/build/**/gnat*.bin
 
-      - name: Copy new pages files
+      - name: Clean main dir
+        run: |
+          rm -rf .main
+
+      - name: Checkout main branch to copy new pages into
+        uses: actions/checkout@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          ref: 'main'
+          path: './.main/'   
+
+      - name: Copy newly generated pages files to our gh-pages dir
         env:
           VERSION: ${{ steps.get_version.outputs.version }}
         run: |
-          cp -R .pio/build/gh-pages/assets/* ./gh-pages/assets
-          cp -R .pio/build/gh-pages/_releases/* ./gh-pages/_releases
+          cp -R .pio/build/gh-pages/assets/* ./.main/gh-pages/assets
+          cp -R .pio/build/gh-pages/_releases/* ./.main/gh-pages/_releases
           
-      - name: Commit to main
+      - name: Commit new assets and release files to main
         uses: EndBug/add-and-commit@v9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          cwd: '.'
+          cwd: './.main/'
           add: '["gh-pages/assets/*", "gh-pages/_releases/*"]'
 
   build-gh-pages:
