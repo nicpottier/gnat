@@ -1,6 +1,7 @@
 Import("env")
 import os
 import shutil
+from datetime import datetime
 
 MANIFEST_ESP32 = """
     {
@@ -112,6 +113,7 @@ def populate_gh_pages(source, target, env):
     RELEASE_MD = """---
 name: gnat-$VERSION
 version: $VERSION
+date: $DATE
 platforms:
     - ttgo
     - m5stick
@@ -121,6 +123,7 @@ platforms:
 
     release_md = RELEASE_MD
     release_md = release_md.replace("$VERSION", version)
+    release_md = release_md.replace("$DATE", datetime.now().strftime("%G-%m-%d %H:%M:%S"))
 
     # output a gh-pages release md file as well
     release_path = os.path.join(release_dir, f"gnat_{version}.md")
