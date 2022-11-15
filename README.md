@@ -4,15 +4,15 @@ GNAT is an esp32 based mini-dashboard for Decent DE1 espresso machines. It pairs
 
 # Install
 
-You can find out more about GNAT and install it from your Chrome browser by visiting (https://nicpottier.github.io/gnat/)[https://nicpottier.github.io/gnat/]
+You can find out more about GNAT and install it from your Chrome browser by visiting [https://nicpottier.github.io/gnat/](https://nicpottier.github.io/gnat/)
 
 # Quickstart
 
 This is a PlatformIO Project. To build and install you'll need to follow these steps:
 
-1. Install (Visual Studio Code)[https://code.visualstudio.com/]
+1. Install [Visual Studio Code](https://code.visualstudio.com/)
 
-2. Install the (PlatformIO)[https://platformio.org/] Extension
+2. Install the [PlatformIO](https://platformio.org/) Extension
 
 3. Clone this repository and point PlatformIO to open the root of this repository as your project folder.
 
