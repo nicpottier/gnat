@@ -170,7 +170,7 @@ class DE1 : public Device, public Machine {
 
   bool shouldConnect(NimBLEAdvertisedDevice* d) {
     // name returned by BLE is null terminated (in a std::string!) so fallback to strcmp
-    return (strcmp(de1_name, d->getName().c_str())) == 0;
+    return (strncmp(de1_name, d->getName().c_str(), strlen(de1_name))) == 0;
   }
   const std::string getName() {
     return de1_name;

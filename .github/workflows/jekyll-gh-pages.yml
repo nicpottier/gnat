@@ -2,9 +2,11 @@
 name: Deploy Jekyll with GitHub Pages dependencies preinstalled
 
 on:
-  # Runs on pushes targeting the default branch
+  # Runs on pushes that change our gh-pages directory
   push:
-    branches: ["gh-pages"]
+    branches: ["main"]
+    paths:
+      - gh-pages/**
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -32,7 +34,7 @@ jobs:
       - name: Build with Jekyll
         uses: actions/jekyll-build-pages@v1
         with:
-          source: ./
+          source: ./gh-pages
           destination: ./_site
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v1

@@ -47,31 +47,32 @@ jobs:
           name: firmware
           path: .pio/build/**/gnat*.bin
 
-      - name: Clean gh-pages dir
+      - name: Clean main dir
         run: |
-          rm -rf gh-pages
+          rm -rf .main
 
-      - uses: actions/checkout@v3
+      - name: Checkout main branch to copy new pages into
+        uses: actions/checkout@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          ref: 'gh-pages'
-          path: './gh-pages/'          
+          ref: 'main'
+          path: './.main/'   
 
-      - name: Set up gh-pages files
+      - name: Copy newly generated pages files to our gh-pages dir
         env:
           VERSION: ${{ steps.get_version.outputs.version }}
         run: |
-          cp -R .pio/build/gh-pages/assets/* ./gh-pages/assets
-          cp -R .pio/build/gh-pages/_releases/* ./gh-pages/_releases
+          cp -R .pio/build/gh-pages/assets/* ./.main/gh-pages/assets
+          cp -R .pio/build/gh-pages/_releases/* ./.main/gh-pages/_releases
           
-      - name: Upload to gh-pages branch
+      - name: Commit new assets and release files to main
         uses: EndBug/add-and-commit@v9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          cwd: './gh-pages/'
-          add: '["assets/*", "_releases/*"]'
+          cwd: './.main/'
+          add: '["gh-pages/assets/*", "gh-pages/_releases/*"]'
 
   build-gh-pages:
     runs-on: ubuntu-latest
@@ -80,13 +81,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
         with: 
-          ref: gh-pages
+          ref: main
       - name: Setup Pages
         uses: actions/configure-pages@v2
       - name: Build with Jekyll
         uses: actions/jekyll-build-pages@v1
         with:
-          source: ./
+          source: ./gh-pages
           destination: ./_site
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v1
