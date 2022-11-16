@@ -1,4 +1,5 @@
 #pragma once
+#include <Config.h>
 
 const long restart_tick_delay = 100;
 
@@ -124,7 +125,7 @@ enum class MachineSubstate {
   unknown = 255,  // 255, unknown (gnat specific)
 };
 
-namespace data {
+namespace ctx {
 class Sample {
  public:
   Sample()
@@ -316,9 +317,9 @@ class MachineStateUpdate {
   MachineSubstate m_substate;
 };
 
-class DataUpdate {
+class ContextUpdate {
  public:
-  DataUpdate(UpdateType type)
+  ContextUpdate(UpdateType type)
       : m_type{type} {}
 
   bool apply(Context* ctx) {
@@ -344,50 +345,50 @@ class DataUpdate {
     }
   }
 
-  static DataUpdate newConnectionStatus(DeviceType d, BLEState s) {
-    auto u = DataUpdate{UpdateType::ble_state_update};
+  static ContextUpdate newConnectionStatus(DeviceType d, BLEState s) {
+    auto u = ContextUpdate{UpdateType::ble_state_update};
     u.m_bleStateUpdate = BLEStateUpdate(d, s);
     return u;
   }
 
-  static DataUpdate newWeightCommand(double weight) {
-    auto u = DataUpdate{UpdateType::weight_update};
+  static ContextUpdate newWeightCommand(double weight) {
+    auto u = ContextUpdate{UpdateType::weight_update};
     u.m_weightUpdate = WeightUpdate{weight};
     return u;
   }
 
-  static DataUpdate newSampleUpdate(Sample sample) {
-    auto u = DataUpdate{UpdateType::sample_update};
+  static ContextUpdate newSampleUpdate(Sample sample) {
+    auto u = ContextUpdate{UpdateType::sample_update};
     u.m_sampleUpdate = SampleUpdate{sample};
     return u;
   }
 
-  static DataUpdate newMachineStateUpdate(MachineState state, MachineSubstate subState) {
-    auto u = DataUpdate{UpdateType::machine_state_update};
+  static ContextUpdate newMachineStateUpdate(MachineState state, MachineSubstate subState) {
+    auto u = ContextUpdate{UpdateType::machine_state_update};
     u.m_machineStateUpdate = MachineStateUpdate{state, subState};
     return u;
   }
 
-  static DataUpdate newRestartUpdate() {
-    auto u = DataUpdate{UpdateType::restart_update};
+  static ContextUpdate newRestartUpdate() {
+    auto u = ContextUpdate{UpdateType::restart_update};
     u.m_restartUpdate = RestartUpdate{};
     return u;
   }
 
-  static DataUpdate newWaterLevelUpdate(int level, int threshold) {
-    auto u = DataUpdate{UpdateType::water_level_update};
+  static ContextUpdate newWaterLevelUpdate(int level, int threshold) {
+    auto u = ContextUpdate{UpdateType::water_level_update};
     u.m_waterLevelUpdate = WaterLevelUpdate{level, threshold};
     return u;
   }
 
-  static DataUpdate newScreenUpdate(ScreenID screen) {
-    auto u = DataUpdate{UpdateType::screen_update};
+  static ContextUpdate newScreenUpdate(ScreenID screen) {
+    auto u = ContextUpdate{UpdateType::screen_update};
     u.m_screenUpdate = ScreenUpdate{screen};
     return u;
   }
 
-  static DataUpdate newConfigUpdate(Config config) {
-    auto u = DataUpdate{UpdateType::config_update};
+  static ContextUpdate newConfigUpdate(Config config) {
+    auto u = ContextUpdate{UpdateType::config_update};
     u.m_configUpdate = ConfigUpdate(config);
     return u;
   }
@@ -407,4 +408,4 @@ class DataUpdate {
   };
 };
 
-}  // namespace data
+}  // namespace ctx

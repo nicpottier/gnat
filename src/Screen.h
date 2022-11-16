@@ -1,5 +1,5 @@
 #pragma once
-#include <Data.h>
+#include <Context.h>
 #include <widget/Widget.h>
 
 class Screen {
@@ -7,7 +7,7 @@ class Screen {
   Screen(ScreenID screenID)
       : m_screen{screenID} {};
 
-  void tickAndPaint(data::Context ctx, TFT_eSPI& tft) {
+  void tickAndPaint(ctx::Context ctx, TFT_eSPI& tft) {
     // if we aren't the active screen, noop
     if (ctx.screen != m_screen) {
       m_lastScreen = ctx.screen;

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Command.h>
-#include <Data.h>
+#include <Context.h>
 #include <NimBLEDevice.h>
 #include <ble/Devices.h>
 
@@ -66,7 +66,7 @@ class Device : public NimBLEClientCallbacks {
     }
   }
 
-  void queueUpdate(data::DataUpdate d) {
+  void queueUpdate(ctx::ContextUpdate d) {
     if (xQueueSend(m_updateQ, &d, 10) != pdTRUE) {
       Serial.println(" !!! failed sending update");
     }
@@ -75,7 +75,7 @@ class Device : public NimBLEClientCallbacks {
  private:
   void setState(BLEState s) {
     m_state = s;
-    queueUpdate(data::DataUpdate::newConnectionStatus(m_type, m_state));
+    queueUpdate(ctx::ContextUpdate::newConnectionStatus(m_type, m_state));
   }
 
   NimBLEClient* m_client = nullptr;

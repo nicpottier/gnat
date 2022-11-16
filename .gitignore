@@ -8,3 +8,4 @@
 platformio-device-monitor*
 .jekyll-cache
 _site
+src/assets.h

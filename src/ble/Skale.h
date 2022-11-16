@@ -22,7 +22,7 @@ class Skale : public Device, public Scale {
   void scaleUpdate(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* pData, size_t length, bool isNotify) {
     if (length > 4) {
       int16_t w = pData[1] | (pData[2] << 8);
-      queueUpdate(data::DataUpdate::newWeightCommand(w / (double)10));
+      queueUpdate(ctx::ContextUpdate::newWeightCommand(w / (double)10));
     }
   }
 

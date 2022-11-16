@@ -11,7 +11,7 @@ class ScaleStatus : public Widget {
         m_y{y},
         m_width{width} {};
 
-  bool tick(data::Context ctx, unsigned long tickID, unsigned long millis) {
+  bool tick(ctx::Context ctx, unsigned long tickID, unsigned long millis) {
     bool changed = false;
     auto weight = int(ctx.currentWeight * 10) / double(10);
 

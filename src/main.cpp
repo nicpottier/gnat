@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <Command.h>
 #include <Config.h>
-#include <Data.h>
+#include <Context.h>
 
 #ifdef M5_STICK
 #include <M5StickCPlus.h>
@@ -19,6 +19,8 @@
 #include <ble/DE1.h>
 #include <ble/FoundDevice.h>
 #include <ble/Skale.h>
+#include <controller/StopBrewController.h>
+#include <controller/TareController.h>
 #include <widget/BrewBackground.h>
 #include <widget/ConfigBackground.h>
 #include <widget/ConfigFields.h>
@@ -27,6 +29,8 @@
 #include <widget/ScaleStatus.h>
 #include <widget/ShotGraph.h>
 #include <widget/ShotTimer.h>
+
+#include <vector>
 
 #include "ESPAsyncWebServer.h"
 
@@ -53,6 +57,7 @@ const int screenHeight = TFT_WIDTH;
 
 static NimBLEScan* pBLEScan;
 static ble::Device* devices[2];
+static std::vector<controller::Controller*> controllers(12);
 
 static QueueHandle_t foundDeviceQ;
 
@@ -67,7 +72,7 @@ const int BACKLIGHT_PWM_FREQ = 10000;
 const int BACKLIGHT_PWM_RESOLUTION = 8;
 const int BACKLIGHT_PWM_CHANNEL = 0;
 
-auto g_ctx = data::Context{};
+auto g_ctx = ctx::Context{};
 
 class BLEAdCallback : public NimBLEAdvertisedDeviceCallbacks {
   void onResult(NimBLEAdvertisedDevice* d) {
@@ -93,9 +98,6 @@ class BLEAdCallback : public NimBLEAdvertisedDeviceCallbacks {
     }
   };
 };
-
-ble::Skale* skale = nullptr;
-ble::DE1* de1 = nullptr;
 
 void bleLoop(void* parameters) {
   Serial.printf("[%d] BLE Loop started\n", xPortGetCoreID());
@@ -196,7 +198,7 @@ class CaptiveRequestHandler : public AsyncWebHandler {
 
     // make sure our config screen is shown on any request
     if (g_ctx.screen == ScreenID::connect) {
-      auto screen = data::DataUpdate::newScreenUpdate(ScreenID::config);
+      auto screen = ctx::ContextUpdate::newScreenUpdate(ScreenID::config);
       if (xQueueSend(updateQ, &screen, 10) != pdTRUE) {
         Serial.println("error queuing screen update");
       }
@@ -222,7 +224,7 @@ class CaptiveRequestHandler : public AsyncWebHandler {
         if (newConfig.getError() == ConfigError::none) {
           writeConfig(newConfig);
           // queue our config update
-          auto configUpdate = data::DataUpdate::newConfigUpdate(newConfig);
+          auto configUpdate = ctx::ContextUpdate::newConfigUpdate(newConfig);
           if (xQueueSend(updateQ, &configUpdate, 10) != pdTRUE) {
             Serial.println("Error queueing config update");
           }
@@ -285,7 +287,7 @@ void IRAM_ATTR menuButtonPressed() {
     } else if (g_ctx.screen == ScreenID::connect) {
       nextScreen = ScreenID::config;
     }
-    auto screen = data::DataUpdate::newScreenUpdate(nextScreen);
+    auto screen = ctx::ContextUpdate::newScreenUpdate(nextScreen);
     if (xQueueSend(updateQ, &screen, 10) != pdTRUE) {
       Serial.println("error queuing screen update");
     }
@@ -309,13 +311,14 @@ void setup() {
   g_ctx.config = readConfig();
 
   foundDeviceQ = xQueueCreate(10, sizeof(ble::FoundDevice));
-  updateQ = xQueueCreate(100, sizeof(data::DataUpdate));
+  updateQ = xQueueCreate(100, sizeof(ctx::ContextUpdate));
   cmdQ = xQueueCreate(100, sizeof(cmd::CommandRequest));
 
-  skale = new ble::Skale{updateQ, cmdQ};
-  devices[0] = skale;
-  de1 = new ble::DE1{updateQ, cmdQ};
-  devices[1] = de1;
+  devices[0] = new ble::Skale{updateQ, cmdQ};
+  devices[1] = new ble::DE1{updateQ, cmdQ};
+
+  controllers.push_back(new controller::StopBrewController(cmdQ));
+  controllers.push_back(new controller::TareController(cmdQ));
 
   s_brewScreen = new Screen{ScreenID::brew};
   s_brewScreen->addWidget(new widget::BrewBackground{screenWidth, screenHeight});
@@ -420,7 +423,7 @@ const unsigned long CMD_TIMEOUT = 2000 / TICK_TARGET;
 
 void loop() {
   // container for the commands we pop off our queue
-  auto d = data::DataUpdate{UpdateType::null_update};
+  auto d = ctx::ContextUpdate{UpdateType::null_update};
   auto nextTick = 0;
   idleStart = millis();
 
@@ -470,27 +473,6 @@ void loop() {
         xQueueSend(cmdQ, &wake, 10);
       }
 
-      // if we just switched into brewing espresso, tare our scale
-      if ((g_ctx.machineState != lastState && g_ctx.machineState == MachineState::espresso) ||
-          (g_ctx.machineState == MachineState::espresso && lastSubstate < MachineSubstate::preinfusing &&
-           g_ctx.machineSubstate >= MachineSubstate::preinfusing)) {
-        if (g_ctx.tickID - lastTare > CMD_TIMEOUT) {
-          auto tare = cmd::CommandRequest::newTareScaleCommand();
-          xQueueSend(cmdQ, &tare, 10);
-          lastTare = g_ctx.tickID;
-        }
-      }
-
-      // if we are brewing and we are over 36grams, stop
-      if (g_ctx.machineState == MachineState::espresso && g_ctx.machineSubstate == MachineSubstate::pouring &&
-          g_ctx.currentWeight > g_ctx.config.getStopWeight() - 1) {
-        if (g_ctx.tickID - lastStop > CMD_TIMEOUT) {
-          auto stop = cmd::CommandRequest::newStopMachineCommand();
-          xQueueSend(cmdQ, &stop, 10);
-          lastStop = g_ctx.tickID;
-        }
-      }
-
       // switching into idle, reset our timeout
       if (g_ctx.machineState == MachineState::idle && lastState != MachineState::idle) {
         idleStart = millis();
@@ -503,6 +485,11 @@ void loop() {
           xQueueSend(cmdQ, &sleep, 10);
           lastSleep = g_ctx.tickID;
         }
+      }
+
+      // run through our controllers, giving each an opportunity to take action
+      for (auto cont : controllers) {
+        cont->tick(g_ctx);
       }
 
       // if it's time to reboot, do so

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <Data.h>
 #include <ble/Device.h>
 
 namespace ble {
@@ -58,14 +57,14 @@ class DE1 : public Device, public Machine {
   void stateUpdate(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* d, size_t length, bool isNotify) {
     int state = d[0];
     int subState = d[1];
-    queueUpdate(data::DataUpdate::newMachineStateUpdate((MachineState)state, (MachineSubstate)subState));
+    queueUpdate(ctx::ContextUpdate::newMachineStateUpdate((MachineState)state, (MachineSubstate)subState));
   }
 
   void sampleUpdate(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* d, size_t length, bool isNotify) {
     if (length != 19) {
       return;
     }
-    auto sample = data::Sample{};
+    auto sample = ctx::Sample{};
     int i16 = d[1] | (d[0] << 8);
     sample.sampleTime = int(100 * (i16 / double(50 * 2)));
 
@@ -86,13 +85,13 @@ class DE1 : public Device, public Machine {
     sample.frameNumber = d[17];
     sample.steamTemp = d[18];
 
-    queueUpdate(data::DataUpdate::newSampleUpdate(sample));
+    queueUpdate(ctx::ContextUpdate::newSampleUpdate(sample));
   }
 
   void waterUpdate(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* d, size_t length, bool isNotify) {
     ushort level = d[1] | (d[2] << 8);
     ushort threshold = d[3] | (d[4] << 8);
-    queueUpdate(data::DataUpdate::newWaterLevelUpdate(level, threshold));
+    queueUpdate(ctx::ContextUpdate::newWaterLevelUpdate(level, threshold));
   }
 
   bool setupConnection(NimBLEClient* c) {
@@ -139,7 +138,7 @@ class DE1 : public Device, public Machine {
 
             int state = value.data()[0];
             int subState = value.data()[1];
-            queueUpdate(data::DataUpdate::newMachineStateUpdate((MachineState)state, (MachineSubstate)subState));
+            queueUpdate(ctx::ContextUpdate::newMachineStateUpdate((MachineState)state, (MachineSubstate)subState));
 
             m_stateChar = ch;
           }
