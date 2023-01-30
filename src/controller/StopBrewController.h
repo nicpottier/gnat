@@ -8,13 +8,14 @@ namespace controller {
 class StopBrewController : public Controller {
  public:
   StopBrewController(QueueHandle_t cmdQ)
-      : Controller(cmdQ) {}
+      : Controller("Stop Brew Controller", cmdQ) {}
 
   void tick(ctx::Context ctx) {
     // if we are brewing and within reach of our stop weight
     if (ctx.machineState == MachineState::espresso && ctx.machineSubstate == MachineSubstate::pouring &&
         ctx.currentWeight > ctx.config.getStopWeight() - 1) {
       if (ctx.tickID - m_lastStop > CMD_TIMEOUT) {
+        Serial.printf("stopping at weight\n");
         // then send a stop cmd
         sendCommand(cmd::CommandRequest::newStopMachineCommand());
         m_lastStop = ctx.tickID;

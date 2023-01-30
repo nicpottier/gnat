@@ -9,16 +9,17 @@
 #include <TFT_eSPI.h>
 #endif
 
-#include <AsyncTCP.h>
-#include <DNSServer.h>
 #include <Esp.h>
 #include <NimBLEDevice.h>
 #include <Screen.h>
-#include <WiFi.h>
+#include <ap.h>
 #include <assets.h>
 #include <ble/DE1.h>
 #include <ble/FoundDevice.h>
 #include <ble/Skale.h>
+#include <controller/APController.h>
+#include <controller/RebootController.h>
+#include <controller/SleepController.h>
 #include <controller/StopBrewController.h>
 #include <controller/TareController.h>
 #include <widget/BrewBackground.h>
@@ -31,17 +32,6 @@
 #include <widget/ShotTimer.h>
 
 #include <vector>
-
-#include "ESPAsyncWebServer.h"
-
-#ifndef SSID
-#define SSID "GNAT"
-#endif
-
-const uint8_t BACKLIGHT_ON = 100;
-
-DNSServer g_dnsServer;
-AsyncWebServer g_server(80);
 
 // the tft we draw to
 TFT_eSPI tft = TFT_eSPI();
@@ -57,9 +47,9 @@ const int screenHeight = TFT_WIDTH;
 
 static NimBLEScan* pBLEScan;
 static ble::Device* devices[2];
-static std::vector<controller::Controller*> controllers(12);
+std::vector<controller::Controller*> controllers;
 
-static QueueHandle_t foundDeviceQ;
+QueueHandle_t foundDeviceQ;
 
 static QueueHandle_t updateQ;
 static QueueHandle_t cmdQ;
@@ -67,10 +57,6 @@ static QueueHandle_t cmdQ;
 static Screen* s_brewScreen;
 static Screen* s_connectScreen;
 static Screen* s_configScreen;
-
-const int BACKLIGHT_PWM_FREQ = 10000;
-const int BACKLIGHT_PWM_RESOLUTION = 8;
-const int BACKLIGHT_PWM_CHANNEL = 0;
 
 auto g_ctx = ctx::Context{};
 
@@ -154,9 +140,9 @@ void bleLoop(void* parameters) {
 
       lastCmdType = c.getType();
       if (!c.execute(devices)) {
-        Serial.printf("failed executing command\n");
+        Serial.printf("failed executing command: %d\n", c.getType());
       }
-    }
+    } 
 
     // check whether our scan needs restarting
     if (!pBLEScan->isScanning()) {
@@ -166,113 +152,6 @@ void bleLoop(void* parameters) {
     // sleep a few cycles to reset the watchdog
     vTaskDelay(40);
   }
-}
-
-bool startingWifi = false;
-
-class CaptiveRequestHandler : public AsyncWebHandler {
- public:
-  CaptiveRequestHandler() {}
-  virtual ~CaptiveRequestHandler() {}
-
-  bool canHandle(AsyncWebServerRequest* request) override {
-    return true;
-  }
-
-  bool isRequestHandlerTrivial() {
-    return false;
-  }
-
-  void sendConfigRedirect(AsyncWebServerRequest* request, Config config, const char* msg) {
-    char query[255];
-    config.toURLQuery(query, 255);
-
-    char url[500];
-    snprintf(url, 500, "/config?%s&msg=%s", query, msg);
-    request->redirect(url);
-  }
-
-  void handleRequest(AsyncWebServerRequest* request) override {
-    auto url = request->url().c_str();
-    Serial.printf("[%d] %s: %s\n", xPortGetCoreID(), request->methodToString(), url);
-
-    // make sure our config screen is shown on any request
-    if (g_ctx.screen == ScreenID::connect) {
-      auto screen = ctx::ContextUpdate::newScreenUpdate(ScreenID::config);
-      if (xQueueSend(updateQ, &screen, 10) != pdTRUE) {
-        Serial.println("error queuing screen update");
-      }
-    }
-
-    if (strstr(url, "/gnat_white.png") == url) {
-      auto response = request->beginResponse_P(200, "image/png", gnat_white_png, gnat_white_png_len);
-      response->addHeader("Content-Encoding", "gzip");
-      request->send(response);
-    }
-
-    else if (strstr(url, "/pico.min.css") == url) {
-      auto response = request->beginResponse_P(200, "text/css", pico_min_css, pico_min_css_len);
-      response->addHeader("Content-Encoding", "gzip");
-      request->send(response);
-    }
-
-    else if (strstr(url, "/config") == url) {
-      if (request->method() == HTTP_POST) {
-        auto newConfig = Config::fromRequest(request);
-
-        // no errors? save our new config
-        if (newConfig.getError() == ConfigError::none) {
-          writeConfig(newConfig);
-          // queue our config update
-          auto configUpdate = ctx::ContextUpdate::newConfigUpdate(newConfig);
-          if (xQueueSend(updateQ, &configUpdate, 10) != pdTRUE) {
-            Serial.println("Error queueing config update");
-          }
-          sendConfigRedirect(request, newConfig, "Configuration+Saved");
-        } else {
-          sendConfigRedirect(request, newConfig, "");
-        }
-      } else {
-        auto response = request->beginResponse_P(200, "text/html", config_html, config_html_len);
-        response->addHeader("Content-Encoding", "gzip");
-        request->send(response);
-      }
-    }
-
-    else {
-      sendConfigRedirect(request, g_ctx.config, "");
-    }
-  }
-};
-
-void startAP() {
-  // bring up our GNAT AP
-  WiFi.softAP("GNAT");
-
-  // start our DNS server
-  if (!g_dnsServer.start(53, "*", WiFi.softAPIP())) {
-    Serial.println("unable to start dns server");
-  }
-
-  // add our handler
-  g_server.addHandler(new CaptiveRequestHandler()).setFilter(ON_AP_FILTER);  // only when requested from AP
-
-  // start handling
-  g_server.begin();
-}
-
-void stopAP() {
-  // stop handling
-  g_server.end();
-
-  // clear all handlers
-  g_server.reset();
-
-  // turn off dns
-  g_dnsServer.stop();
-
-  // turn off our AP
-  WiFi.softAPdisconnect(true);
 }
 
 long lastMenuPress = millis();
@@ -317,8 +196,11 @@ void setup() {
   devices[0] = new ble::Skale{updateQ, cmdQ};
   devices[1] = new ble::DE1{updateQ, cmdQ};
 
+  controllers.push_back(new controller::APController(&g_ctx, cmdQ, updateQ));
+  controllers.push_back(new controller::SleepController(cmdQ, tft));
   controllers.push_back(new controller::StopBrewController(cmdQ));
   controllers.push_back(new controller::TareController(cmdQ));
+  controllers.push_back(new controller::RebootController(cmdQ));
 
   s_brewScreen = new Screen{ScreenID::brew};
   s_brewScreen->addWidget(new widget::BrewBackground{screenWidth, screenHeight});
@@ -424,14 +306,11 @@ const unsigned long CMD_TIMEOUT = 2000 / TICK_TARGET;
 void loop() {
   // container for the commands we pop off our queue
   auto d = ctx::ContextUpdate{UpdateType::null_update};
-  auto nextTick = 0;
+  auto nextTick = millis();
   idleStart = millis();
 
-  auto lastScreen = ScreenID::unknown;
-  auto lastState = MachineState::unknown;
-  auto lastSubstate = MachineSubstate::unknown;
-
   while (true) {
+    // process any updates to our context
     while (xQueueReceive(updateQ, (void*)&d, 0) == pdTRUE) {
       d.apply(&g_ctx);
     }
@@ -443,79 +322,17 @@ void loop() {
       s_connectScreen->tickAndPaint(g_ctx, tft);
       s_configScreen->tickAndPaint(g_ctx, tft);
 
-      // we just went to sleep, turn off the screen
-      if (g_ctx.machineState == MachineState::sleep && lastState != g_ctx.machineState) {
-#ifdef M5_STICK
-        M5.Axp.ScreenSwitch(false);
-#else
-        ledcWrite(BACKLIGHT_PWM_CHANNEL, 0);
-        tft.writecommand(ST7789_DISPOFF);
-#endif
-
-        // send a sleep command to our BLE devices
-        auto sleep = cmd::CommandRequest::newSleepCommand();
-        xQueueSend(cmdQ, &sleep, 10);
-      }
-
-      // just left sleep, turn on screen
-      if ((lastState == MachineState::sleep || lastState == MachineState::unknown) &&
-          g_ctx.machineState != MachineState::sleep) {
-#ifdef M5_STICK
-        M5.Axp.ScreenSwitch(true);
-#else
-        ledcWrite(BACKLIGHT_PWM_CHANNEL, BACKLIGHT_ON);
-        tft.writecommand(ST7789_DISPON);
-#endif
-        idleStart = millis();
-
-        // send a wake command to our BLE devices
-        auto wake = cmd::CommandRequest::newWakeCommand();
-        xQueueSend(cmdQ, &wake, 10);
-      }
-
-      // switching into idle, reset our timeout
-      if (g_ctx.machineState == MachineState::idle && lastState != MachineState::idle) {
-        idleStart = millis();
-      }
-
-      // if we haven't brewed anything for a bit, sleep
-      if (g_ctx.machineState == MachineState::idle && millis() - idleStart > g_ctx.config.getSleepTime() * 60 * 1000) {
-        if (g_ctx.tickID - lastSleep > CMD_TIMEOUT) {
-          auto sleep = cmd::CommandRequest::newSleepCommand();
-          xQueueSend(cmdQ, &sleep, 10);
-          lastSleep = g_ctx.tickID;
-        }
-      }
-
       // run through our controllers, giving each an opportunity to take action
       for (auto cont : controllers) {
         cont->tick(g_ctx);
       }
 
-      // if it's time to reboot, do so
-      if (g_ctx.restartTickID > 0 && g_ctx.tickID > g_ctx.restartTickID) {
-        ESP.restart();
-      }
-
-      // handle our AP state based on what screen we are on
-      if (lastScreen == ScreenID::brew && (g_ctx.screen == ScreenID::connect || g_ctx.screen == ScreenID::config)) {
-        startAP();
-      } else if (g_ctx.screen == ScreenID::brew && lastScreen != ScreenID::unknown && lastScreen != ScreenID::brew) {
-        stopAP();
-      }
-
-      lastScreen = g_ctx.screen;
-      lastState = g_ctx.machineState;
-      lastSubstate = g_ctx.machineSubstate;
-
-      // increment our tick id and save our last tick
+      // increment our tick id and when we will tick again
       g_ctx.tickID++;
-      lastTick = millis();
-      nextTick = lastTick + TICK_TARGET;
-
-      if (g_ctx.screen == ScreenID::config || g_ctx.screen == ScreenID::connect) {
-        g_dnsServer.processNextRequest();
-      }
+      nextTick = nextTick + TICK_TARGET;
     }
+
+    // tick our AP if it is active
+    tickAP();
   }
 }

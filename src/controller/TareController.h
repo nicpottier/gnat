@@ -8,7 +8,7 @@ namespace controller {
 class TareController : public Controller {
  public:
   TareController(QueueHandle_t cmdQ)
-      : Controller(cmdQ),
+      : Controller("Tare Controller", cmdQ),
         m_lastTare(0),
         m_lastState(MachineState::unknown),
         m_lastSubstate(MachineSubstate::unknown) {}
