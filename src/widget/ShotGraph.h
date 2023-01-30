@@ -16,9 +16,13 @@ class ShotFrame {
 
 class ShotGraph : public Widget {
  public:
-  ShotGraph(int x, int y, int width, int height) : m_x{x}, m_y{y}, m_width{width}, m_height{height} {};
+  ShotGraph(int x, int y, int width, int height)
+      : m_x{x},
+        m_y{y},
+        m_width{width},
+        m_height{height} {};
 
-  bool tick(data::Context ctx, unsigned long tickID, unsigned long millis) override {
+  bool tick(ctx::Context ctx, unsigned long tickID, unsigned long millis) override {
     auto changed = false;
     if (ctx.getMachineBLEState() == BLEState::connected && ctx.getMachineBLEState() != m_machineBLEState) {
       m_machineBLEState = ctx.getMachineBLEState();

@@ -11,7 +11,7 @@ class ConnectInstructions : public Widget {
       : m_width{width},
         m_height{height} {};
 
-  bool tick(data::Context ctx, unsigned long tickID, unsigned long millis) {
+  bool tick(ctx::Context ctx, unsigned long tickID, unsigned long millis) {
     // only redraw when forced by screen
     return false;
   }
