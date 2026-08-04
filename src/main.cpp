@@ -27,6 +27,7 @@
 #include <widget/ScaleStatus.h>
 #include <widget/ShotGraph.h>
 #include <widget/ShotTimer.h>
+#include <widget/WaterLevel.h>
 
 #include "ESPAsyncWebServer.h"
 
@@ -325,7 +326,8 @@ void setup() {
   s_brewScreen->addWidget(new widget::ScaleStatus{5, 7, 80});
   s_brewScreen->addWidget(new widget::MachineStatus{screenWidth / 3 + 5, 7, 80});
   s_brewScreen->addWidget(new widget::ShotTimer{(screenWidth / 3) * 2 + 5, 7, 80});
-  s_brewScreen->addWidget(new widget::ShotGraph{5, 40, screenWidth - 10, screenHeight - 40});
+  s_brewScreen->addWidget(new widget::ShotGraph{5, 40, screenWidth - 30, screenHeight - 40});
+  s_brewScreen->addWidget(new widget::WaterLevel{screenWidth - 18, 42, 10, screenHeight - 49});
 
   s_connectScreen = new Screen{ScreenID::connect};
   s_connectScreen->addWidget(new widget::ConnectInstructions{screenWidth, screenHeight});

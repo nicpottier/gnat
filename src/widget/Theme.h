@@ -3,13 +3,14 @@
 class Theme {
  public:
   Theme(int bg_color, int text_color, int ble_color, int error_color, int weight_color, int water_color,
-        int pressure_color, int temp_color, int dash_bg_color, int dash_border_color)
+        int water_low_color, int pressure_color, int temp_color, int dash_bg_color, int dash_border_color)
       : bg_color{uint32_t(bg_color)},
         text_color{uint32_t(text_color)},
         ble_color{uint32_t(ble_color)},
         error_color{uint32_t(error_color)},
         weight_color{uint32_t(weight_color)},
         water_color{uint32_t(water_color)},
+        water_low_color{uint32_t(water_low_color)},
         pressure_color{uint32_t(pressure_color)},
         temp_color{uint32_t(temp_color)},
         dash_bg_color{uint32_t(dash_bg_color)},
@@ -20,6 +21,7 @@ class Theme {
   uint32_t error_color;
   uint32_t weight_color;
   uint32_t water_color;
+  uint32_t water_low_color;
   uint32_t pressure_color;
   uint32_t temp_color;
   uint32_t dash_bg_color;
@@ -35,6 +37,7 @@ const Theme dark_theme = Theme{
     0xb945,  // error_color
     0x9A60,  // weight_color
     0x001F,  // water_color
+    0x5D7F,  // water_low_color
     0x4c87,  // pressure_color
     0xb945,  // temp_color
     0x823,   // dash_bg_color
