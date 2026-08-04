@@ -6,10 +6,12 @@
 
 static const char* stop_weight_key = "stop_weight";
 static const char* sleep_time_key = "sleep_time";
+static const char* refill_level_key = "refill_level";
 static const char* error_key = "error";
 
 static const char* invalid_sleep_time_error = "Invalid+sleep+time,+must+be+less+than+360";
 static const char* invalid_stop_weight_error = "Invalid+stop+weight,+must+be+less+than+100";
+static const char* invalid_refill_level_error = "Invalid+refill+level,+must+be+between+1+and+20";
 
 static const int default_stop_weight = 36;
 static const int max_stop_weight = 100;
@@ -19,10 +21,15 @@ static const int default_sleep_time = 15;
 static const int max_sleep_time = 360;
 static const int min_sleep_time = 0;
 
+static const int default_refill_level = 3;
+static const int max_refill_level = 20;
+static const int min_refill_level = 1;
+
 enum class ConfigError {
   none = 0,
   invalid_sleep_time,
   invalid_stop_weight,
+  invalid_refill_level,
 };
 
 class Config {
@@ -30,6 +37,7 @@ class Config {
   Config()
       : m_sleepTime{default_sleep_time},
         m_stopWeight{default_stop_weight},
+        m_refillLevel{default_refill_level},
         m_error(ConfigError::none) {
     m_version = millis();
   }
@@ -37,12 +45,14 @@ class Config {
   static Config fromQueryString(char* query) {
     auto stopWeight = getUnsignedInt(query, stop_weight_key);
     auto sleepTime = getUnsignedInt(query, sleep_time_key);
-    return Config(sleepTime, stopWeight);
+    auto refillLevel = getUnsignedInt(query, refill_level_key);
+    return Config(sleepTime, stopWeight, refillLevel);
   }
 
   static Config fromRequest(AsyncWebServerRequest* request) {
     int sleepTime = 0;
     int stopWeight = 0;
+    int refillLevel = 0;
 
     auto param = request->getParam(sleep_time_key, true, false);
     if (param) {
@@ -54,7 +64,12 @@ class Config {
       stopWeight = parseUnsignedInt(param->value().c_str());
     }
 
-    return Config(sleepTime, stopWeight);
+    param = request->getParam(refill_level_key, true, false);
+    if (param) {
+      refillLevel = parseUnsignedInt(param->value().c_str());
+    }
+
+    return Config(sleepTime, stopWeight, refillLevel);
   }
 
   // returns a url encoded version of the config, suitable for writing to EEProm
@@ -68,12 +83,19 @@ class Config {
       size -= strlen(field);
       field += snprintf(field, size, "%s=%d&", sleep_time_key, m_sleepTime);
     }
+    if (m_refillLevel != 0) {
+      size -= strlen(field);
+      field += snprintf(field, size, "%s=%d&", refill_level_key, m_refillLevel);
+    }
     if (m_error == ConfigError::invalid_sleep_time) {
       size -= strlen(field);
       field += snprintf(field, size, "%s=%s", error_key, invalid_sleep_time_error);
     } else if (m_error == ConfigError::invalid_stop_weight) {
       size -= strlen(field);
       field += snprintf(field, size, "%s=%s", error_key, invalid_stop_weight_error);
+    } else if (m_error == ConfigError::invalid_refill_level) {
+      size -= strlen(field);
+      field += snprintf(field, size, "%s=%s", error_key, invalid_refill_level_error);
     }
     return buffer;
   }
@@ -86,6 +108,10 @@ class Config {
     return m_stopWeight;
   }
 
+  int getRefillLevel() {
+    return m_refillLevel;
+  }
+
   ConfigError getError() {
     return m_error;
   }
@@ -95,9 +121,10 @@ class Config {
   }
 
  private:
-  Config(int sleepTime, int stopAtWeight)
+  Config(int sleepTime, int stopAtWeight, int refillLevel)
       : m_sleepTime{sleepTime},
         m_stopWeight{stopAtWeight},
+        m_refillLevel{refillLevel},
         m_error{ConfigError::none} {
     if (m_sleepTime == 0) {
       m_sleepTime = default_sleep_time;
@@ -111,6 +138,12 @@ class Config {
       m_stopWeight = default_stop_weight;
     } else if (m_stopWeight < min_stop_weight || m_stopWeight > max_stop_weight) {
       m_error = ConfigError::invalid_stop_weight;
+    }
+
+    if (m_refillLevel == 0) {
+      m_refillLevel = default_refill_level;
+    } else if (m_refillLevel < min_refill_level || m_refillLevel > max_refill_level) {
+      m_error = ConfigError::invalid_refill_level;
     }
 
     m_version = millis();
@@ -189,6 +222,9 @@ class Config {
 
   // the weight we will stop at
   int m_stopWeight;
+
+  // the water level (in mm) at which the machine asks for a refill
+  int m_refillLevel;
 
   // the last error encountered while parsing
   ConfigError m_error;

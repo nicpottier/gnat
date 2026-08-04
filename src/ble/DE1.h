@@ -14,6 +14,11 @@ const auto de1_sample_uuid = "0xa00d";
 const uint8_t de1_sleep_cmd = 0x00;
 const uint8_t de1_stop_cmd = 0x02;
 
+// water level (in mm) at which the machine should ask for a refill, used until the
+// configured value is set, without this write the machine falls back to a higher
+// stored threshold and asks for water sooner than it needs to
+const uint8_t de1_default_refill_level_mm = 3;
+
 class DE1 : public Device, public Machine {
  public:
   DE1(QueueHandle_t updateQ, QueueHandle_t cmdQ)
@@ -55,6 +60,19 @@ class DE1 : public Device, public Machine {
     return true;
   }
 
+  bool setRefillLevel(int mm) {
+    if (mm < 1 || mm > 255) {
+      return false;
+    }
+    m_refillLevelMm = mm;
+
+    // if we are connected, update the machine immediately
+    if (m_waterChar) {
+      return writeRefillLevel();
+    }
+    return true;
+  }
+
   void stateUpdate(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* d, size_t length, bool isNotify) {
     int state = d[0];
     int subState = d[1];
@@ -90,8 +108,12 @@ class DE1 : public Device, public Machine {
   }
 
   void waterUpdate(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* d, size_t length, bool isNotify) {
-    ushort level = d[1] | (d[2] << 8);
-    ushort threshold = d[3] | (d[4] << 8);
+    if (length < 4) {
+      return;
+    }
+    // two big-endian U16P8 fixed point values in mm: current level, then refill threshold
+    int level = ((d[0] << 8) | d[1]) / 256;
+    int threshold = ((d[2] << 8) | d[3]) / 256;
     queueUpdate(data::DataUpdate::newWaterLevelUpdate(level, threshold));
   }
 
@@ -154,6 +176,18 @@ class DE1 : public Device, public Machine {
             ch->subscribe(true, std::bind(&DE1::waterUpdate, this, std::placeholders::_1, std::placeholders::_2,
                                           std::placeholders::_3, std::placeholders::_4));
             Serial.print(" WATER");
+
+            // write our refill threshold
+            m_waterChar = ch;
+            if (writeRefillLevel()) {
+              Serial.print(" REFILL SET");
+            }
+
+            // read the current level so we don't have to wait for the first notification
+            auto value = ch->readValue();
+            if (value.length() >= 4) {
+              waterUpdate(ch, (uint8_t*)value.data(), value.length(), false);
+            }
           }
         }
         Serial.println("");
@@ -163,7 +197,9 @@ class DE1 : public Device, public Machine {
     return true;
   }
 
-  void teardownConnection(NimBLEClient* c) {}
+  void teardownConnection(NimBLEClient* c) {
+    m_waterChar = nullptr;
+  }
 
   void selfRegister(Devices* devices) {
     devices->setMachine(this);
@@ -178,8 +214,17 @@ class DE1 : public Device, public Machine {
   }
 
  private:
+  bool writeRefillLevel() {
+    // write is {level, threshold} as big-endian U16P8 values, level is ignored on write
+    uint8_t levels[] = {0, 0, m_refillLevelMm, 0};
+    return m_waterChar->writeValue(levels, sizeof(levels), true);
+  }
+
   NimBLERemoteCharacteristic* m_cmdChar = nullptr;
   NimBLERemoteCharacteristic* m_stateChar = nullptr;
+  NimBLERemoteCharacteristic* m_waterChar = nullptr;
+
+  uint8_t m_refillLevelMm = de1_default_refill_level_mm;
 };
 
 }  // namespace ble

@@ -7,6 +7,7 @@ class Machine {
   virtual bool sleep() = 0;
   virtual bool stop() = 0;
   virtual bool wake() = 0;
+  virtual bool setRefillLevel(int mm) = 0;
 };
 
 }

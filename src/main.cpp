@@ -317,6 +317,9 @@ void setup() {
   de1 = new ble::DE1{updateQ, cmdQ};
   devices[1] = de1;
 
+  // safe to set directly, our ble task hasn't started yet
+  de1->setRefillLevel(g_ctx.config.getRefillLevel());
+
   s_brewScreen = new Screen{ScreenID::brew};
   s_brewScreen->addWidget(new widget::BrewBackground{screenWidth, screenHeight});
   s_brewScreen->addWidget(new widget::ScaleStatus{5, 7, 80});
@@ -427,6 +430,7 @@ void loop() {
   auto lastScreen = ScreenID::unknown;
   auto lastState = MachineState::unknown;
   auto lastSubstate = MachineSubstate::unknown;
+  auto lastConfigVersion = g_ctx.config.getVersion();
 
   while (true) {
     while (xQueueReceive(updateQ, (void*)&d, 0) == pdTRUE) {
@@ -508,6 +512,13 @@ void loop() {
           xQueueSend(cmdQ, &sleep, 10);
           lastSleep = g_ctx.tickID;
         }
+      }
+
+      // if our config changed, pass along our new refill level
+      if (g_ctx.config.getVersion() != lastConfigVersion) {
+        lastConfigVersion = g_ctx.config.getVersion();
+        auto refill = cmd::CommandRequest::newRefillLevelCommand(g_ctx.config.getRefillLevel());
+        xQueueSend(cmdQ, &refill, 10);
       }
 
       // if it's time to reboot, do so

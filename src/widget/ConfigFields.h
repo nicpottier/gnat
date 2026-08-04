@@ -39,6 +39,10 @@ class ConfigFields : public Widget {
     snprintf(buffer, 16, "%d", m_config.getSleepTime());
     tft.drawString("Sleep time:", m_x, m_y + 20);
     tft.drawString(buffer, m_x + 110, m_y + 20);
+
+    snprintf(buffer, 16, "%d", m_config.getRefillLevel());
+    tft.drawString("Refill level:", m_x, m_y + 40);
+    tft.drawString(buffer, m_x + 110, m_y + 40);
   }
 
  private:

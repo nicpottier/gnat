@@ -38,6 +38,10 @@
             <input type="number" name="sleep_time" id="sleep_time" placeholder="15" min="0" max="360" required>
             <small>How many minutes before your machine is put to sleep.</small>
 
+            <label for="refill_level">Refill Level</label>
+            <input type="number" name="refill_level" id="refill_level" placeholder="3" min="1" max="20" required>
+            <small>Water level in millimeters at which your machine asks for a refill.</small>
+
             <button type="submit">Save</button>
         </form>
     </main>
@@ -52,6 +56,9 @@
 
     const sleepTime = urlParams.get("sleep_time");
     document.getElementById("sleep_time").value = sleepTime;
+
+    const refillLevel = urlParams.get("refill_level");
+    document.getElementById("refill_level").value = refillLevel;
 
     const error = urlParams.get("error");
     if (error) {

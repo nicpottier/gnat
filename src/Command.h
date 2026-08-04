@@ -13,6 +13,7 @@ enum class CommandType {
   SLEEP,
   WAKE,
   MACHINE_STOP,
+  MACHINE_REFILL_LEVEL,
 };
 
 class TareScaleCommand {
@@ -49,6 +50,24 @@ class StopMachineCommand {
     Serial.println("SENDING MACHINE STOP");
     return m->stop();
   }
+};
+
+class RefillLevelCommand {
+ public:
+  RefillLevelCommand()
+      : m_level{0} {};
+  RefillLevelCommand(int level)
+      : m_level{level} {};
+
+  bool execute(ble::Devices *devices) {
+    auto m = devices->getMachine();
+    if (!m) return false;
+    Serial.printf("SENDING REFILL LEVEL %d\n", m_level);
+    return m->setRefillLevel(m_level);
+  }
+
+ private:
+  int m_level;
 };
 
 class SleepCommand {
@@ -104,6 +123,8 @@ class CommandRequest {
         return m_tareScale.execute(devices);
       case CommandType::MACHINE_STOP:
         return m_stopMachine.execute(devices);
+      case CommandType::MACHINE_REFILL_LEVEL:
+        return m_refillLevel.execute(devices);
       case CommandType::SLEEP:
         return m_sleep.execute(devices);
       case CommandType::WAKE:
@@ -137,6 +158,12 @@ class CommandRequest {
     return c;
   }
 
+  static CommandRequest newRefillLevelCommand(int level) {
+    auto c = CommandRequest{CommandType::MACHINE_REFILL_LEVEL};
+    c.m_refillLevel = RefillLevelCommand{level};
+    return c;
+  }
+
   static CommandRequest newSleepCommand() {
     auto c = CommandRequest{CommandType::SLEEP};
     c.m_sleep = SleepCommand{};
@@ -155,6 +182,7 @@ class CommandRequest {
     TareScaleCommand m_tareScale;
     InitScaleCommand m_initScale;
     StopMachineCommand m_stopMachine;
+    RefillLevelCommand m_refillLevel;
     SleepCommand m_sleep;
     WakeCommand m_wake;
   };
