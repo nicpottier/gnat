@@ -42,6 +42,11 @@
             <input type="number" name="refill_level" id="refill_level" placeholder="3" min="1" max="20" required>
             <small>Water level in millimeters at which your machine asks for a refill.</small>
 
+            <label>Profiles</label>
+            <div id="profiles" style="max-height:20rem;overflow-y:auto;" class="bordered"></div>
+            <small>Profiles the button on your gnat cycles through.</small>
+            <input type="hidden" name="enabled" id="enabled">
+
             <button type="submit">Save</button>
         </form>
     </main>
@@ -59,6 +64,44 @@
 
     const refillLevel = urlParams.get("refill_level");
     document.getElementById("refill_level").value = refillLevel;
+
+    // fetch our profile names and render them as checkboxes, checked state
+    // comes from the enabled hex bitmask, byte i bit j = profile i * 8 + j
+    const enabledHex = urlParams.get("enabled") || "";
+    const enabledBit = (idx) => {
+        const byte = parseInt(enabledHex.substr((idx >> 3) * 2, 2), 16);
+        return !isNaN(byte) && (byte >> (idx % 8) & 1) == 1;
+    };
+
+    let profileCount = 0;
+    fetch("/profiles.json").then(r => r.json()).then(names => {
+        profileCount = names.length;
+        const container = document.getElementById("profiles");
+        names.forEach((name, idx) => {
+            const label = document.createElement("label");
+            const box = document.createElement("input");
+            box.type = "checkbox";
+            box.dataset.idx = idx;
+            box.checked = enabledHex ? enabledBit(idx) : false;
+            label.appendChild(box);
+            label.appendChild(document.createTextNode(name));
+            container.appendChild(label);
+        });
+    });
+
+    // pack the checkboxes back into the hex bitmask on submit
+    document.querySelector("form").addEventListener("submit", () => {
+        if (profileCount == 0) {
+            return;
+        }
+        const bytes = new Array(Math.ceil(profileCount / 8)).fill(0);
+        document.querySelectorAll("#profiles input:checked").forEach(box => {
+            const idx = parseInt(box.dataset.idx);
+            bytes[idx >> 3] |= 1 << (idx % 8);
+        });
+        document.getElementById("enabled").value =
+            bytes.map(b => b.toString(16).padStart(2, "0")).join("");
+    });
 
     const error = urlParams.get("error");
     if (error) {

@@ -2,6 +2,7 @@
 
 #include <Data.h>
 #include <ble/Device.h>
+#include <profiles.h>
 
 namespace ble {
 
@@ -10,6 +11,8 @@ const auto de1_requested_state_uuid = "0xa002";
 const auto de1_state_uuid = "0xa00e";
 const auto de1_water_uuid = "0xa011";
 const auto de1_sample_uuid = "0xa00d";
+const auto de1_header_uuid = "0xa00f";
+const auto de1_frame_uuid = "0xa010";
 
 const uint8_t de1_sleep_cmd = 0x00;
 const uint8_t de1_stop_cmd = 0x02;
@@ -69,6 +72,19 @@ class DE1 : public Device, public Machine {
     // if we are connected, update the machine immediately
     if (m_waterChar) {
       return writeRefillLevel();
+    }
+    return true;
+  }
+
+  bool setProfile(int idx) {
+    if (idx < 0 || idx >= profile_count) {
+      return false;
+    }
+    m_profileIdx = idx;
+
+    // if we are connected, upload the profile immediately
+    if (m_headerChar && m_frameChar) {
+      return uploadProfile();
     }
     return true;
   }
@@ -145,6 +161,14 @@ class DE1 : public Device, public Machine {
           m_cmdChar = ch;
         }
 
+        if (ch->getUUID().toString() == de1_header_uuid) {
+          m_headerChar = ch;
+        }
+
+        if (ch->getUUID().toString() == de1_frame_uuid) {
+          m_frameChar = ch;
+        }
+
         if (ch->canNotify()) {
           Serial.print("  CAN NOTIFY");
           // state update
@@ -194,11 +218,22 @@ class DE1 : public Device, public Machine {
       }
     }
 
+    // load our selected profile onto the machine
+    if (m_headerChar && m_frameChar) {
+      if (uploadProfile()) {
+        Serial.printf("[%s] uploaded profile: %s\n", getName().c_str(), profiles[m_profileIdx].name);
+      } else {
+        Serial.printf("[%s] failed uploading profile\n", getName().c_str());
+      }
+    }
+
     return true;
   }
 
   void teardownConnection(NimBLEClient* c) {
     m_waterChar = nullptr;
+    m_headerChar = nullptr;
+    m_frameChar = nullptr;
   }
 
   void selfRegister(Devices* devices) {
@@ -220,11 +255,30 @@ class DE1 : public Device, public Machine {
     return m_waterChar->writeValue(levels, sizeof(levels), true);
   }
 
+  bool uploadProfile() {
+    auto profile = profiles[m_profileIdx];
+
+    if (!m_headerChar->writeValue(profile.header, 5, true)) {
+      return false;
+    }
+
+    for (int i = 0; i < profile.frameCount; i++) {
+      if (!m_frameChar->writeValue(profile.frames[i], 8, true)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   NimBLERemoteCharacteristic* m_cmdChar = nullptr;
   NimBLERemoteCharacteristic* m_stateChar = nullptr;
   NimBLERemoteCharacteristic* m_waterChar = nullptr;
+  NimBLERemoteCharacteristic* m_headerChar = nullptr;
+  NimBLERemoteCharacteristic* m_frameChar = nullptr;
 
   uint8_t m_refillLevelMm = de1_default_refill_level_mm;
+  int m_profileIdx = 0;
 };
 
 }  // namespace ble

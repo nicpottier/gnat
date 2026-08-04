@@ -1,4 +1,6 @@
 #include <Arduino.h>
+#include <profiles.h>
+
 #include <Command.h>
 #include <Config.h>
 #include <Data.h>
@@ -19,11 +21,13 @@
 #include <ble/DE1.h>
 #include <ble/FoundDevice.h>
 #include <ble/Skale.h>
+#include <widget/BatteryStatus.h>
 #include <widget/BrewBackground.h>
 #include <widget/ConfigBackground.h>
 #include <widget/ConfigFields.h>
 #include <widget/ConnectInstructions.h>
 #include <widget/MachineStatus.h>
+#include <widget/ProfileName.h>
 #include <widget/ScaleStatus.h>
 #include <widget/ShotGraph.h>
 #include <widget/ShotTimer.h>
@@ -215,9 +219,16 @@ class CaptiveRequestHandler : public AsyncWebHandler {
       request->send(response);
     }
 
+    else if (strstr(url, "/profiles.json") == url) {
+      request->send_P(200, "application/json", profiles_json);
+    }
+
     else if (strstr(url, "/config") == url) {
       if (request->method() == HTTP_POST) {
         auto newConfig = Config::fromRequest(request);
+
+        // the web form doesn't manage the profile, carry ours over
+        newConfig.setProfile(g_ctx.config.getProfile());
 
         // no errors? save our new config
         if (newConfig.getError() == ConfigError::none) {
@@ -274,6 +285,21 @@ void stopAP() {
   WiFi.softAPdisconnect(true);
 }
 
+#ifdef PROFILE_BUTTON_PIN
+long lastProfilePress = millis();
+
+void IRAM_ATTR profileButtonPressed() {
+  // debounce
+  if (millis() - lastProfilePress > 500) {
+    auto cycle = data::DataUpdate::newProfileCycleUpdate();
+    if (xQueueSend(updateQ, &cycle, 10) != pdTRUE) {
+      Serial.println("error queuing profile cycle");
+    }
+  }
+  lastProfilePress = millis();
+}
+#endif
+
 long lastMenuPress = millis();
 
 void IRAM_ATTR menuButtonPressed() {
@@ -320,14 +346,18 @@ void setup() {
 
   // safe to set directly, our ble task hasn't started yet
   de1->setRefillLevel(g_ctx.config.getRefillLevel());
+  de1->setProfile(g_ctx.config.getProfile() - 1);
 
   s_brewScreen = new Screen{ScreenID::brew};
   s_brewScreen->addWidget(new widget::BrewBackground{screenWidth, screenHeight});
   s_brewScreen->addWidget(new widget::ScaleStatus{5, 7, 80});
   s_brewScreen->addWidget(new widget::MachineStatus{screenWidth / 3 + 5, 7, 80});
   s_brewScreen->addWidget(new widget::ShotTimer{(screenWidth / 3) * 2 + 5, 7, 80});
-  s_brewScreen->addWidget(new widget::ShotGraph{5, 40, screenWidth - 30, screenHeight - 40});
+  s_brewScreen->addWidget(new widget::ShotGraph{5, 40, screenWidth - 30, screenHeight - 57});
   s_brewScreen->addWidget(new widget::WaterLevel{screenWidth - 18, 42, 10, screenHeight - 49});
+  s_brewScreen->addWidget(new widget::ProfileName{8, screenHeight - 14, screenWidth - 34});
+  // added last so it paints over the shot timer's corner
+  s_brewScreen->addWidget(new widget::BatteryStatus{screenWidth - 4, 3});
 
   s_connectScreen = new Screen{ScreenID::connect};
   s_connectScreen->addWidget(new widget::ConnectInstructions{screenWidth, screenHeight});
@@ -402,6 +432,11 @@ void setup() {
   pinMode(MENU_BUTTON_PIN, INPUT_PULLUP);
   attachInterrupt(MENU_BUTTON_PIN, menuButtonPressed, FALLING);
 
+#ifdef PROFILE_BUTTON_PIN
+  pinMode(PROFILE_BUTTON_PIN, INPUT_PULLUP);
+  attachInterrupt(PROFILE_BUTTON_PIN, profileButtonPressed, FALLING);
+#endif
+
   tft.setRotation(3);
   tft.setSwapBytes(true);
   tft.fillScreen(theme.bg_color);
@@ -433,6 +468,8 @@ void loop() {
   auto lastState = MachineState::unknown;
   auto lastSubstate = MachineSubstate::unknown;
   auto lastConfigVersion = g_ctx.config.getVersion();
+  auto lastProfile = g_ctx.config.getProfile();
+  auto profileSendPending = false;
 
   while (true) {
     while (xQueueReceive(updateQ, (void*)&d, 0) == pdTRUE) {
@@ -521,6 +558,21 @@ void loop() {
         lastConfigVersion = g_ctx.config.getVersion();
         auto refill = cmd::CommandRequest::newRefillLevelCommand(g_ctx.config.getRefillLevel());
         xQueueSend(cmdQ, &refill, 10);
+      }
+
+      // if our selected profile changed, persist it and queue an upload
+      if (g_ctx.config.getProfile() != lastProfile) {
+        lastProfile = g_ctx.config.getProfile();
+        writeConfig(g_ctx.config);
+        profileSendPending = true;
+      }
+
+      // upload the profile once the machine isn't busy making something
+      if (profileSendPending && g_ctx.machineState != MachineState::espresso &&
+          g_ctx.machineState != MachineState::steam && g_ctx.machineState != MachineState::hot_water) {
+        auto profile = cmd::CommandRequest::newProfileCommand(g_ctx.config.getProfile() - 1);
+        xQueueSend(cmdQ, &profile, 10);
+        profileSendPending = false;
       }
 
       // if it's time to reboot, do so

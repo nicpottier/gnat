@@ -12,6 +12,7 @@ enum class UpdateType : uint8_t {
   water_level_update,
   screen_update,
   config_update,
+  profile_cycle_update,
 };
 
 enum class ScreenID : uint8_t { unknown, brew, connect, config };
@@ -208,6 +209,16 @@ class ConfigUpdate {
   Config m_config;
 };
 
+class ProfileCycleUpdate {
+ public:
+  ProfileCycleUpdate() {}
+
+  bool apply(Context* ctx) {
+    ctx->config.setProfile(ctx->config.nextEnabledProfile());
+    return true;
+  }
+};
+
 class ScreenUpdate {
  public:
   ScreenUpdate(ScreenID screen)
@@ -339,6 +350,8 @@ class DataUpdate {
         return m_screenUpdate.apply(ctx);
       case UpdateType::config_update:
         return m_configUpdate.apply(ctx);
+      case UpdateType::profile_cycle_update:
+        return m_profileCycleUpdate.apply(ctx);
       default:
         return false;
     }
@@ -392,6 +405,12 @@ class DataUpdate {
     return u;
   }
 
+  static DataUpdate newProfileCycleUpdate() {
+    auto u = DataUpdate{UpdateType::profile_cycle_update};
+    u.m_profileCycleUpdate = ProfileCycleUpdate{};
+    return u;
+  }
+
  private:
   UpdateType m_type;
 
@@ -404,6 +423,7 @@ class DataUpdate {
     WaterLevelUpdate m_waterLevelUpdate;
     ScreenUpdate m_screenUpdate;
     ConfigUpdate m_configUpdate;
+    ProfileCycleUpdate m_profileCycleUpdate;
   };
 };
 

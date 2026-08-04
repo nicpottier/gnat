@@ -43,6 +43,10 @@ class ConfigFields : public Widget {
     snprintf(buffer, 16, "%d", m_config.getRefillLevel());
     tft.drawString("Refill level:", m_x, m_y + 40);
     tft.drawString(buffer, m_x + 110, m_y + 40);
+
+    snprintf(buffer, 16, "%d of %d", m_config.enabledProfileCount(), profile_count);
+    tft.drawString("Profiles:", m_x, m_y + 60);
+    tft.drawString(buffer, m_x + 110, m_y + 60);
   }
 
  private:

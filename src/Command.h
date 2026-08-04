@@ -14,6 +14,7 @@ enum class CommandType {
   WAKE,
   MACHINE_STOP,
   MACHINE_REFILL_LEVEL,
+  MACHINE_PROFILE,
 };
 
 class TareScaleCommand {
@@ -68,6 +69,24 @@ class RefillLevelCommand {
 
  private:
   int m_level;
+};
+
+class ProfileCommand {
+ public:
+  ProfileCommand()
+      : m_idx{0} {};
+  ProfileCommand(int idx)
+      : m_idx{idx} {};
+
+  bool execute(ble::Devices *devices) {
+    auto m = devices->getMachine();
+    if (!m) return false;
+    Serial.printf("SENDING PROFILE %d\n", m_idx);
+    return m->setProfile(m_idx);
+  }
+
+ private:
+  int m_idx;
 };
 
 class SleepCommand {
@@ -125,6 +144,8 @@ class CommandRequest {
         return m_stopMachine.execute(devices);
       case CommandType::MACHINE_REFILL_LEVEL:
         return m_refillLevel.execute(devices);
+      case CommandType::MACHINE_PROFILE:
+        return m_profile.execute(devices);
       case CommandType::SLEEP:
         return m_sleep.execute(devices);
       case CommandType::WAKE:
@@ -164,6 +185,12 @@ class CommandRequest {
     return c;
   }
 
+  static CommandRequest newProfileCommand(int idx) {
+    auto c = CommandRequest{CommandType::MACHINE_PROFILE};
+    c.m_profile = ProfileCommand{idx};
+    return c;
+  }
+
   static CommandRequest newSleepCommand() {
     auto c = CommandRequest{CommandType::SLEEP};
     c.m_sleep = SleepCommand{};
@@ -183,6 +210,7 @@ class CommandRequest {
     InitScaleCommand m_initScale;
     StopMachineCommand m_stopMachine;
     RefillLevelCommand m_refillLevel;
+    ProfileCommand m_profile;
     SleepCommand m_sleep;
     WakeCommand m_wake;
   };

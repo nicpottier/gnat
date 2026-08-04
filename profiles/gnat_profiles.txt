@@ -1,0 +1,9 @@
+# The default set of profiles the button cycles through, one per line.
+# All profiles in this directory are compiled into the firmware, this just
+# picks which ones are enabled until the user changes the set on the config
+# page. Names match the .tcl files (without extension) or their profile_title.
+# Sync new profiles from de1app with: python3 shared/sync_profiles.py
+Damian's LRv2
+Gentle and sweet
+Traditional lever machine
+Cleaning/Forward Flush x5
