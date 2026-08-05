@@ -21,7 +21,6 @@
 #include <ble/DE1.h>
 #include <ble/FoundDevice.h>
 #include <ble/Skale.h>
-#include <widget/BatteryStatus.h>
 #include <widget/BrewBackground.h>
 #include <widget/ConfigBackground.h>
 #include <widget/ConfigFields.h>
@@ -289,23 +288,23 @@ void stopAP() {
 long lastProfilePress = millis();
 
 void IRAM_ATTR profileButtonPressed() {
-  // debounce
-  if (millis() - lastProfilePress > 500) {
+  // ignore bounces, but only restart the window on accepted presses so
+  // fast repeated presses still register
+  if (millis() - lastProfilePress > 250) {
+    lastProfilePress = millis();
     auto cycle = data::DataUpdate::newProfileCycleUpdate();
-    if (xQueueSend(updateQ, &cycle, 10) != pdTRUE) {
-      Serial.println("error queuing profile cycle");
-    }
+    xQueueSendFromISR(updateQ, &cycle, NULL);
   }
-  lastProfilePress = millis();
 }
 #endif
 
 long lastMenuPress = millis();
 
 void IRAM_ATTR menuButtonPressed() {
-  // debounce
-  // TODO: read current state instead and only react on button up?
-  if (millis() - lastMenuPress > 500) {
+  // ignore bounces, but only restart the window on accepted presses so
+  // fast repeated presses still register
+  if (millis() - lastMenuPress > 250) {
+    lastMenuPress = millis();
     auto nextScreen = ScreenID::brew;
     if (g_ctx.screen == ScreenID::brew) {
       nextScreen = ScreenID::connect;
@@ -313,11 +312,8 @@ void IRAM_ATTR menuButtonPressed() {
       nextScreen = ScreenID::config;
     }
     auto screen = data::DataUpdate::newScreenUpdate(nextScreen);
-    if (xQueueSend(updateQ, &screen, 10) != pdTRUE) {
-      Serial.println("error queuing screen update");
-    }
+    xQueueSendFromISR(updateQ, &screen, NULL);
   }
-  lastMenuPress = millis();
 }
 
 void setup() {
@@ -356,8 +352,6 @@ void setup() {
   s_brewScreen->addWidget(new widget::ShotGraph{5, 40, screenWidth - 30, screenHeight - 57});
   s_brewScreen->addWidget(new widget::WaterLevel{screenWidth - 18, 42, 10, screenHeight - 49});
   s_brewScreen->addWidget(new widget::ProfileName{8, screenHeight - 14, screenWidth - 34});
-  // added last so it paints over the shot timer's corner
-  s_brewScreen->addWidget(new widget::BatteryStatus{screenWidth - 4, 3});
 
   s_connectScreen = new Screen{ScreenID::connect};
   s_connectScreen->addWidget(new widget::ConnectInstructions{screenWidth, screenHeight});
@@ -458,6 +452,9 @@ const unsigned long SLEEP_TIMEOUT = 1000 * 60 * 15;
 // how many ticks before we try a command again, default 2 seconds
 const unsigned long CMD_TIMEOUT = 2000 / TICK_TARGET;
 
+// how long a profile selection needs to settle before we persist and upload it
+const unsigned long PROFILE_SETTLE_TICKS = 3000 / TICK_TARGET;
+
 void loop() {
   // container for the commands we pop off our queue
   auto d = data::DataUpdate{UpdateType::null_update};
@@ -469,7 +466,7 @@ void loop() {
   auto lastSubstate = MachineSubstate::unknown;
   auto lastConfigVersion = g_ctx.config.getVersion();
   auto lastProfile = g_ctx.config.getProfile();
-  auto profileSendPending = false;
+  unsigned long profileChangedTick = 0;
 
   while (true) {
     while (xQueueReceive(updateQ, (void*)&d, 0) == pdTRUE) {
@@ -560,19 +557,21 @@ void loop() {
         xQueueSend(cmdQ, &refill, 10);
       }
 
-      // if our selected profile changed, persist it and queue an upload
+      // if our selected profile changed, start (or restart) our settle timer, this
+      // lets the user cycle through profiles without each one hitting the machine
       if (g_ctx.config.getProfile() != lastProfile) {
         lastProfile = g_ctx.config.getProfile();
-        writeConfig(g_ctx.config);
-        profileSendPending = true;
+        profileChangedTick = g_ctx.tickID;
       }
 
-      // upload the profile once the machine isn't busy making something
-      if (profileSendPending && g_ctx.machineState != MachineState::espresso &&
-          g_ctx.machineState != MachineState::steam && g_ctx.machineState != MachineState::hot_water) {
+      // once the selection has settled, persist it and upload it to the machine
+      if (profileChangedTick > 0 && g_ctx.tickID - profileChangedTick > PROFILE_SETTLE_TICKS &&
+          g_ctx.machineState != MachineState::espresso && g_ctx.machineState != MachineState::steam &&
+          g_ctx.machineState != MachineState::hot_water) {
+        writeConfig(g_ctx.config);
         auto profile = cmd::CommandRequest::newProfileCommand(g_ctx.config.getProfile() - 1);
         xQueueSend(cmdQ, &profile, 10);
-        profileSendPending = false;
+        profileChangedTick = 0;
       }
 
       // if it's time to reboot, do so

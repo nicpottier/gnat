@@ -4,6 +4,8 @@
 const int profile_count = 88;
 const int profile_mask_bytes = 11;
 const uint8_t profile_default_mask[] = {0x00,0x40,0x04,0x00,0x20,0x00,0x00,0x00,0x00,0x00,0x04};
+// the default profile, 1-based, first entry of gnat_profiles.txt
+const int profile_default = 19;
 
 // 7g basket
 const uint8_t profile_0_header[] = {0x01,0x05,0x02,0x00,0x60};

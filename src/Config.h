@@ -28,9 +28,6 @@ static const int default_refill_level = 3;
 static const int max_refill_level = 20;
 static const int min_refill_level = 1;
 
-// profiles are stored 1-based so 0 can mean unset
-static const int default_profile = 1;
-
 // room for up to this many bytes of enabled profile mask (128 profiles)
 static const int max_profile_mask_bytes = 16;
 
@@ -47,7 +44,7 @@ class Config {
       : m_sleepTime{default_sleep_time},
         m_stopWeight{default_stop_weight},
         m_refillLevel{default_refill_level},
-        m_profile{default_profile},
+        m_profile{profile_default},
         m_error(ConfigError::none) {
     resetEnabled();
     m_version = millis();
@@ -150,7 +147,7 @@ class Config {
 
   void setProfile(int profile) {
     if (profile < 1 || profile > profile_count || !isProfileEnabled(profile - 1)) {
-      profile = firstEnabledProfile();
+      profile = fallbackProfile();
     }
     m_profile = profile;
     m_version = millis();
@@ -229,7 +226,7 @@ class Config {
 
     if (m_profile == 0 || m_profile > profile_count || !isProfileEnabled(m_profile - 1)) {
       // unset, beyond our count (compiled in list changed) or no longer enabled
-      m_profile = firstEnabledProfile();
+      m_profile = fallbackProfile();
     }
 
     m_version = millis();
@@ -272,13 +269,18 @@ class Config {
     memcpy(m_enabled, profile_default_mask, profile_mask_bytes);
   }
 
-  int firstEnabledProfile() {
+  // the profile to fall back to: the compiled in default if it's enabled,
+  // otherwise the first enabled profile
+  int fallbackProfile() {
+    if (isProfileEnabled(profile_default - 1)) {
+      return profile_default;
+    }
     for (int idx = 0; idx < profile_count; idx++) {
       if (isProfileEnabled(idx)) {
         return idx + 1;
       }
     }
-    return default_profile;
+    return profile_default;
   }
 
   // parses the passed in string value into an unsigned integer,
