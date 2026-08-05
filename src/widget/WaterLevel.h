@@ -21,13 +21,15 @@ class WaterLevel : public Widget {
 
     // while the machine is moving water the sensor sloshes around, only let
     // the level fall, once at rest track the real reading again
-    if (m_level >= 0 && isMovingWater(ctx.machineState)) {
+    if (m_level >= 0 && machineMovingWater(ctx.machineState)) {
       level = min(m_level, level);
     }
 
-    if (level != m_level || ctx.waterLevelThreshold != m_threshold) {
+    if (level != m_level || ctx.waterLevelThreshold != m_threshold ||
+        ctx.config.getWarnLevel() != m_warnLevel) {
       m_level = level;
       m_threshold = ctx.waterLevelThreshold;
+      m_warnLevel = ctx.config.getWarnLevel();
       return true;
     }
 
@@ -46,36 +48,27 @@ class WaterLevel : public Widget {
 
     auto levelPx = ih * min(m_level, water_level_full_mm) / water_level_full_mm;
     auto thresholdPx = ih * min(m_threshold, water_level_full_mm) / water_level_full_mm;
+    auto warnPx = ih * min(m_warnLevel, water_level_full_mm) / water_level_full_mm;
 
-    // the fill below the refill threshold gets its own color
+    // the fill below the machine's refill threshold gets its own color
     auto lowPx = min(levelPx, thresholdPx);
     if (lowPx > 0) {
       tft.fillRect(ix, iy + ih - lowPx, iw, lowPx, theme.water_low_color);
     }
 
+    // between the refill threshold and our warning level is the warning zone
+    auto warnFillPx = min(levelPx, max(warnPx, thresholdPx));
+    if (warnFillPx > lowPx) {
+      tft.fillRect(ix, iy + ih - warnFillPx, iw, warnFillPx - lowPx, theme.water_warn_color);
+    }
+
     // the rest is regular water
-    if (levelPx > thresholdPx) {
-      tft.fillRect(ix, iy + ih - levelPx, iw, levelPx - thresholdPx, theme.water_color);
+    if (levelPx > warnFillPx) {
+      tft.fillRect(ix, iy + ih - levelPx, iw, levelPx - warnFillPx, theme.water_color);
     }
   }
 
  private:
-  static bool isMovingWater(MachineState state) {
-    switch (state) {
-      case MachineState::espresso:
-      case MachineState::steam:
-      case MachineState::hot_water:
-      case MachineState::hot_water_rinse:
-      case MachineState::steam_rinse:
-      case MachineState::descale:
-      case MachineState::clean:
-      case MachineState::air_purge:
-        return true;
-      default:
-        return false;
-    }
-  }
-
   int m_x;
   int m_y;
   int m_width;
@@ -83,6 +76,7 @@ class WaterLevel : public Widget {
 
   int m_level = -1;
   int m_threshold = -1;
+  int m_warnLevel = -1;
 };
 
 }  // namespace widget

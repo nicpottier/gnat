@@ -30,17 +30,32 @@
         <div class="bordered error" id="error" style="display:none;"></div>
         <div class="bordered msg" id="msg" style="display:none;"></div>
         <form method="post" action="/config">
-            <label for="stop_weight">Stop at Weight</label>
+            <label for="stop_weight">Stop at Weight (g)</label>
             <input type="number" name="stop_weight" id="stop_weight" placeholder="36" min="0" max="100" required>
             <small>Automatically stop shot at this weight in grams.</small>
 
-            <label for="sleep_time">Sleep Timeout</label>
+            <label for="sleep_time">Sleep Timeout (min)</label>
             <input type="number" name="sleep_time" id="sleep_time" placeholder="15" min="0" max="360" required>
             <small>How many minutes before your machine is put to sleep.</small>
 
-            <label for="refill_level">Refill Level</label>
+            <label for="refill_level">Refill Level (mm)</label>
             <input type="number" name="refill_level" id="refill_level" placeholder="3" min="1" max="20" required>
             <small>Water level in millimeters at which your machine asks for a refill.</small>
+
+            <label for="warn_level">Warning Level (mm)</label>
+            <input type="number" name="warn_level" id="warn_level" placeholder="10" min="1" max="40" required>
+            <small>Water level in millimeters at which gnat suggests adding water.</small>
+
+            <label for="shot_margin">Grind Margin (s)</label>
+            <input type="number" name="shot_margin" id="shot_margin" placeholder="3" min="1" max="15" required>
+            <small>Seconds off the 30 second shot target before gnat suggests a grind change.</small>
+
+            <label for="finer_direction">Finer Direction</label>
+            <select name="finer_direction" id="finer_direction">
+                <option value="2" selected>Right</option>
+                <option value="1">Left</option>
+            </select>
+            <small>Which way your grinder rotates for a finer grind.</small>
 
             <label>Profiles</label>
             <div id="profiles" style="max-height:20rem;overflow-y:auto;" class="bordered"></div>
@@ -64,6 +79,17 @@
 
     const refillLevel = urlParams.get("refill_level");
     document.getElementById("refill_level").value = refillLevel;
+
+    const warnLevel = urlParams.get("warn_level");
+    document.getElementById("warn_level").value = warnLevel;
+
+    const shotMargin = urlParams.get("shot_margin");
+    document.getElementById("shot_margin").value = shotMargin;
+
+    const finerDirection = urlParams.get("finer_direction");
+    if (finerDirection) {
+        document.getElementById("finer_direction").value = finerDirection;
+    }
 
     // fetch our profile names and render them as checkboxes, checked state
     // comes from the enabled hex bitmask, byte i bit j = profile i * 8 + j

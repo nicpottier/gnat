@@ -8,6 +8,9 @@
 static const char* stop_weight_key = "stop_weight";
 static const char* sleep_time_key = "sleep_time";
 static const char* refill_level_key = "refill_level";
+static const char* warn_level_key = "warn_level";
+static const char* finer_direction_key = "finer_direction";
+static const char* shot_margin_key = "shot_margin";
 static const char* profile_key = "profile";
 static const char* enabled_key = "enabled";
 static const char* error_key = "error";
@@ -15,6 +18,8 @@ static const char* error_key = "error";
 static const char* invalid_sleep_time_error = "Invalid+sleep+time,+must+be+less+than+360";
 static const char* invalid_stop_weight_error = "Invalid+stop+weight,+must+be+less+than+100";
 static const char* invalid_refill_level_error = "Invalid+refill+level,+must+be+between+1+and+20";
+static const char* invalid_warn_level_error = "Invalid+warning+level,+must+be+between+1+and+40";
+static const char* invalid_shot_margin_error = "Invalid+shot+margin,+must+be+between+1+and+15";
 
 static const int default_stop_weight = 36;
 static const int max_stop_weight = 100;
@@ -28,6 +33,19 @@ static const int default_refill_level = 3;
 static const int max_refill_level = 20;
 static const int min_refill_level = 1;
 
+static const int default_warn_level = 10;
+static const int max_warn_level = 40;
+static const int min_warn_level = 1;
+
+static const int default_shot_margin = 3;
+static const int max_shot_margin = 15;
+static const int min_shot_margin = 1;
+
+// which way the grinder rotates for finer, 1 = left, 2 = right
+static const int finer_direction_left = 1;
+static const int finer_direction_right = 2;
+static const int default_finer_direction = finer_direction_right;
+
 // room for up to this many bytes of enabled profile mask (128 profiles)
 static const int max_profile_mask_bytes = 16;
 
@@ -36,6 +54,8 @@ enum class ConfigError {
   invalid_sleep_time,
   invalid_stop_weight,
   invalid_refill_level,
+  invalid_warn_level,
+  invalid_shot_margin,
 };
 
 class Config {
@@ -44,6 +64,9 @@ class Config {
       : m_sleepTime{default_sleep_time},
         m_stopWeight{default_stop_weight},
         m_refillLevel{default_refill_level},
+        m_warnLevel{default_warn_level},
+        m_finerDirection{default_finer_direction},
+        m_shotMargin{default_shot_margin},
         m_profile{profile_default},
         m_error(ConfigError::none) {
     resetEnabled();
@@ -54,12 +77,15 @@ class Config {
     auto stopWeight = getUnsignedInt(query, stop_weight_key);
     auto sleepTime = getUnsignedInt(query, sleep_time_key);
     auto refillLevel = getUnsignedInt(query, refill_level_key);
+    auto warnLevel = getUnsignedInt(query, warn_level_key);
+    auto finerDirection = getUnsignedInt(query, finer_direction_key);
+    auto shotMargin = getUnsignedInt(query, shot_margin_key);
     auto profile = getUnsignedInt(query, profile_key);
 
     char enabled[max_profile_mask_bytes * 2 + 1] = "";
     getStringValue(query, enabled_key, enabled, sizeof(enabled));
 
-    return Config(sleepTime, stopWeight, refillLevel, profile, enabled);
+    return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, profile, enabled);
   }
 
   static Config fromRequest(AsyncWebServerRequest* request) {
@@ -82,13 +108,31 @@ class Config {
       refillLevel = parseUnsignedInt(param->value().c_str());
     }
 
+    int warnLevel = 0;
+    param = request->getParam(warn_level_key, true, false);
+    if (param) {
+      warnLevel = parseUnsignedInt(param->value().c_str());
+    }
+
+    int finerDirection = 0;
+    param = request->getParam(finer_direction_key, true, false);
+    if (param) {
+      finerDirection = parseUnsignedInt(param->value().c_str());
+    }
+
+    int shotMargin = 0;
+    param = request->getParam(shot_margin_key, true, false);
+    if (param) {
+      shotMargin = parseUnsignedInt(param->value().c_str());
+    }
+
     const char* enabled = "";
     param = request->getParam(enabled_key, true, false);
     if (param) {
       enabled = param->value().c_str();
     }
 
-    return Config(sleepTime, stopWeight, refillLevel, 0, enabled);
+    return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, 0, enabled);
   }
 
   // returns a url encoded version of the config, suitable for writing to EEProm
@@ -105,6 +149,18 @@ class Config {
     if (m_refillLevel != 0) {
       size -= strlen(field);
       field += snprintf(field, size, "%s=%d&", refill_level_key, m_refillLevel);
+    }
+    if (m_warnLevel != 0) {
+      size -= strlen(field);
+      field += snprintf(field, size, "%s=%d&", warn_level_key, m_warnLevel);
+    }
+    if (m_finerDirection != 0) {
+      size -= strlen(field);
+      field += snprintf(field, size, "%s=%d&", finer_direction_key, m_finerDirection);
+    }
+    if (m_shotMargin != 0) {
+      size -= strlen(field);
+      field += snprintf(field, size, "%s=%d&", shot_margin_key, m_shotMargin);
     }
     if (m_profile != 0) {
       size -= strlen(field);
@@ -124,6 +180,12 @@ class Config {
     } else if (m_error == ConfigError::invalid_refill_level) {
       size -= strlen(field);
       field += snprintf(field, size, "%s=%s", error_key, invalid_refill_level_error);
+    } else if (m_error == ConfigError::invalid_warn_level) {
+      size -= strlen(field);
+      field += snprintf(field, size, "%s=%s", error_key, invalid_warn_level_error);
+    } else if (m_error == ConfigError::invalid_shot_margin) {
+      size -= strlen(field);
+      field += snprintf(field, size, "%s=%s", error_key, invalid_shot_margin_error);
     }
     return buffer;
   }
@@ -138,6 +200,21 @@ class Config {
 
   int getRefillLevel() {
     return m_refillLevel;
+  }
+
+  // the water level (in mm) at which we suggest adding water
+  int getWarnLevel() {
+    return m_warnLevel;
+  }
+
+  // whether the grinder goes finer rotating left
+  bool finerIsLeft() {
+    return m_finerDirection != finer_direction_right;
+  }
+
+  // how many seconds from the target shot time before we suggest a grind change
+  int getShotMargin() {
+    return m_shotMargin;
   }
 
   // the selected profile, 1-based
@@ -197,10 +274,14 @@ class Config {
   }
 
  private:
-  Config(int sleepTime, int stopAtWeight, int refillLevel, int profile, const char* enabled)
+  Config(int sleepTime, int stopAtWeight, int refillLevel, int warnLevel, int finerDirection, int shotMargin,
+         int profile, const char* enabled)
       : m_sleepTime{sleepTime},
         m_stopWeight{stopAtWeight},
         m_refillLevel{refillLevel},
+        m_warnLevel{warnLevel},
+        m_finerDirection{finerDirection},
+        m_shotMargin{shotMargin},
         m_profile{profile},
         m_error{ConfigError::none} {
     setEnabledFromHex(enabled);
@@ -222,6 +303,22 @@ class Config {
       m_refillLevel = default_refill_level;
     } else if (m_refillLevel < min_refill_level || m_refillLevel > max_refill_level) {
       m_error = ConfigError::invalid_refill_level;
+    }
+
+    if (m_warnLevel == 0) {
+      m_warnLevel = default_warn_level;
+    } else if (m_warnLevel < min_warn_level || m_warnLevel > max_warn_level) {
+      m_error = ConfigError::invalid_warn_level;
+    }
+
+    if (m_finerDirection < finer_direction_left || m_finerDirection > finer_direction_right) {
+      m_finerDirection = default_finer_direction;
+    }
+
+    if (m_shotMargin == 0) {
+      m_shotMargin = default_shot_margin;
+    } else if (m_shotMargin < min_shot_margin || m_shotMargin > max_shot_margin) {
+      m_error = ConfigError::invalid_shot_margin;
     }
 
     if (m_profile == 0 || m_profile > profile_count || !isProfileEnabled(m_profile - 1)) {
@@ -389,6 +486,15 @@ class Config {
 
   // the water level (in mm) at which the machine asks for a refill
   int m_refillLevel;
+
+  // the water level (in mm) at which we suggest adding water
+  int m_warnLevel;
+
+  // which way the grinder rotates for finer
+  int m_finerDirection;
+
+  // seconds from the target shot time before we suggest a grind change
+  int m_shotMargin;
 
   // the selected profile, 1-based index into the compiled in profiles
   int m_profile;

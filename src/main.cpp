@@ -25,6 +25,7 @@
 #include <widget/ConfigBackground.h>
 #include <widget/ConfigFields.h>
 #include <widget/ConnectInstructions.h>
+#include <widget/FeedbackBanner.h>
 #include <widget/MachineStatus.h>
 #include <widget/ProfileName.h>
 #include <widget/ScaleStatus.h>
@@ -66,6 +67,7 @@ static QueueHandle_t cmdQ;
 static Screen* s_brewScreen;
 static Screen* s_connectScreen;
 static Screen* s_configScreen;
+static Screen* s_feedbackScreen;
 
 const int BACKLIGHT_PWM_FREQ = 10000;
 const int BACKLIGHT_PWM_RESOLUTION = 8;
@@ -219,7 +221,9 @@ class CaptiveRequestHandler : public AsyncWebHandler {
     }
 
     else if (strstr(url, "/profiles.json") == url) {
-      request->send_P(200, "application/json", profiles_json);
+      auto response = request->beginResponse_P(200, "application/json", profiles_json);
+      response->addHeader("Cache-Control", "no-store");
+      request->send(response);
     }
 
     else if (strstr(url, "/config") == url) {
@@ -244,6 +248,7 @@ class CaptiveRequestHandler : public AsyncWebHandler {
       } else {
         auto response = request->beginResponse_P(200, "text/html", config_html, config_html_len);
         response->addHeader("Content-Encoding", "gzip");
+        response->addHeader("Cache-Control", "no-store");
         request->send(response);
       }
     }
@@ -254,7 +259,14 @@ class CaptiveRequestHandler : public AsyncWebHandler {
   }
 };
 
+bool g_apRunning = false;
+
 void startAP() {
+  if (g_apRunning) {
+    return;
+  }
+  g_apRunning = true;
+
   // bring up our GNAT AP
   WiFi.softAP("GNAT");
 
@@ -271,6 +283,11 @@ void startAP() {
 }
 
 void stopAP() {
+  if (!g_apRunning) {
+    return;
+  }
+  g_apRunning = false;
+
   // stop handling
   g_server.end();
 
@@ -358,7 +375,10 @@ void setup() {
 
   s_configScreen = new Screen{ScreenID::config};
   s_configScreen->addWidget(new widget::ConfigBackground{screenWidth, screenHeight});
-  s_configScreen->addWidget(new widget::ConfigFields{10, 50, screenWidth - 20, screenHeight - 40});
+  s_configScreen->addWidget(new widget::ConfigFields{18, 46, screenWidth - 36, screenHeight - 46});
+
+  s_feedbackScreen = new Screen{ScreenID::feedback};
+  s_feedbackScreen->addWidget(new widget::FeedbackBanner{screenWidth, screenHeight});
 
   /** *Optional* Sets the filtering mode used by the scanner in the BLE
    * controller.
@@ -455,6 +475,9 @@ const unsigned long CMD_TIMEOUT = 2000 / TICK_TARGET;
 // how long a profile selection needs to settle before we persist and upload it
 const unsigned long PROFILE_SETTLE_TICKS = 3000 / TICK_TARGET;
 
+// our target shot time, the configurable margin decides when we call it out
+const double TARGET_SHOT_SECONDS = 30;
+
 void loop() {
   // container for the commands we pop off our queue
   auto d = data::DataUpdate{UpdateType::null_update};
@@ -467,6 +490,9 @@ void loop() {
   auto lastConfigVersion = g_ctx.config.getVersion();
   auto lastProfile = g_ctx.config.getProfile();
   unsigned long profileChangedTick = 0;
+  unsigned long pourStart = 0;
+  auto lastFeedback = FeedbackType::none;
+  bool waterWarnDismissed = false;
 
   while (true) {
     while (xQueueReceive(updateQ, (void*)&d, 0) == pdTRUE) {
@@ -479,6 +505,7 @@ void loop() {
       s_brewScreen->tickAndPaint(g_ctx, tft);
       s_connectScreen->tickAndPaint(g_ctx, tft);
       s_configScreen->tickAndPaint(g_ctx, tft);
+      s_feedbackScreen->tickAndPaint(g_ctx, tft);
 
       // we just went to sleep, turn off the screen
       if (g_ctx.machineState == MachineState::sleep && lastState != g_ctx.machineState) {
@@ -513,6 +540,62 @@ void loop() {
         // send a wake command to our BLE devices
         auto wake = cmd::CommandRequest::newWakeCommand();
         xQueueSend(cmdQ, &wake, 10);
+      }
+
+      // starting a new shot clears any lingering feedback
+      if (g_ctx.machineState == MachineState::espresso && lastState != MachineState::espresso) {
+        g_ctx.feedback = FeedbackType::none;
+        g_ctx.feedbackPreview = false;
+        if (g_ctx.screen == ScreenID::feedback) {
+          g_ctx.screen = ScreenID::brew;
+        }
+      }
+
+      // track how long we pour so we can give grind feedback after the shot
+      if (g_ctx.machineState == MachineState::espresso && g_ctx.machineSubstate == MachineSubstate::pouring &&
+          lastSubstate != MachineSubstate::pouring) {
+        pourStart = millis();
+      }
+
+      if (lastSubstate == MachineSubstate::pouring && g_ctx.machineSubstate != MachineSubstate::pouring &&
+          pourStart > 0) {
+        auto seconds = (millis() - pourStart) / (double)1000;
+        g_ctx.feedbackSeconds = seconds;
+        auto margin = (double)g_ctx.config.getShotMargin();
+        if (seconds <= TARGET_SHOT_SECONDS - margin) {
+          g_ctx.feedback = FeedbackType::grind_finer;
+        } else if (seconds >= TARGET_SHOT_SECONDS + margin) {
+          g_ctx.feedback = FeedbackType::grind_coarser;
+        } else {
+          g_ctx.feedback = FeedbackType::none;
+        }
+
+        // take over the screen with our banner when we have feedback
+        if (g_ctx.feedback != FeedbackType::none && g_ctx.screen == ScreenID::brew) {
+          g_ctx.screen = ScreenID::feedback;
+        }
+        pourStart = 0;
+      }
+
+      // note when the add water banner is dismissed while still low so we don't
+      // immediately show it again
+      if (lastFeedback == FeedbackType::add_water && g_ctx.feedback == FeedbackType::none &&
+          g_ctx.waterLevel <= g_ctx.config.getWarnLevel()) {
+        waterWarnDismissed = true;
+      }
+      lastFeedback = g_ctx.feedback;
+
+      // moving water re-arms the warning, as does refilling above the level
+      if (machineMovingWater(g_ctx.machineState) || g_ctx.waterLevel > g_ctx.config.getWarnLevel()) {
+        waterWarnDismissed = false;
+      }
+
+      // suggest adding water when we are at rest in the warning zone
+      if (g_ctx.machineState == MachineState::idle && g_ctx.waterLevel > 0 &&
+          g_ctx.waterLevel <= g_ctx.config.getWarnLevel() && !waterWarnDismissed &&
+          g_ctx.feedback == FeedbackType::none && g_ctx.screen == ScreenID::brew) {
+        g_ctx.feedback = FeedbackType::add_water;
+        g_ctx.screen = ScreenID::feedback;
       }
 
       // if we just switched into brewing espresso, tare our scale
@@ -579,10 +662,11 @@ void loop() {
         ESP.restart();
       }
 
-      // handle our AP state based on what screen we are on
-      if (lastScreen == ScreenID::brew && (g_ctx.screen == ScreenID::connect || g_ctx.screen == ScreenID::config)) {
+      // handle our AP state based on what screen we are on, start and stop
+      // are safe to call regardless of current AP state
+      if (g_ctx.screen == ScreenID::connect || g_ctx.screen == ScreenID::config) {
         startAP();
-      } else if (g_ctx.screen == ScreenID::brew && lastScreen != ScreenID::unknown && lastScreen != ScreenID::brew) {
+      } else if (g_ctx.screen == ScreenID::brew) {
         stopAP();
       }
 
