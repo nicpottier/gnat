@@ -17,8 +17,16 @@ class WaterLevel : public Widget {
         m_height{height} {};
 
   bool tick(data::Context ctx, unsigned long tickID, unsigned long millis) {
-    if (ctx.waterLevel != m_level || ctx.waterLevelThreshold != m_threshold) {
-      m_level = ctx.waterLevel;
+    auto level = ctx.waterLevel;
+
+    // while the machine is moving water the sensor sloshes around, only let
+    // the level fall, once at rest track the real reading again
+    if (m_level >= 0 && isMovingWater(ctx.machineState)) {
+      level = min(m_level, level);
+    }
+
+    if (level != m_level || ctx.waterLevelThreshold != m_threshold) {
+      m_level = level;
       m_threshold = ctx.waterLevelThreshold;
       return true;
     }
@@ -52,6 +60,22 @@ class WaterLevel : public Widget {
   }
 
  private:
+  static bool isMovingWater(MachineState state) {
+    switch (state) {
+      case MachineState::espresso:
+      case MachineState::steam:
+      case MachineState::hot_water:
+      case MachineState::hot_water_rinse:
+      case MachineState::steam_rinse:
+      case MachineState::descale:
+      case MachineState::clean:
+      case MachineState::air_purge:
+        return true;
+      default:
+        return false;
+    }
+  }
+
   int m_x;
   int m_y;
   int m_width;

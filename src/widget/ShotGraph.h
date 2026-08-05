@@ -14,6 +14,9 @@ class ShotFrame {
   BLEState scaleBLEState = BLEState::unknown;
 };
 
+// how many samples of history we keep, bounds the drawable width
+const int shot_graph_capacity = 320;
+
 class ShotGraph : public Widget {
  public:
   ShotGraph(int x, int y, int width, int height) : m_x{x}, m_y{y}, m_width{width}, m_height{height} {};
@@ -25,102 +28,138 @@ class ShotGraph : public Widget {
       changed = true;
     }
 
+    // starting a new shot clears our history
     if (ctx.machineState == MachineState::espresso && ctx.machineSubstate != m_substate) {
       if (m_substate < MachineSubstate::preinfusing && ctx.machineSubstate >= MachineSubstate::preinfusing) {
-        m_clear = true;
-        m_frame = 10;
+        m_count = 0;
         changed = true;
       }
     }
     m_state = ctx.machineState;
     m_substate = ctx.machineSubstate;
 
-    if (ctx.lastSample.sampleTime != m_lastSample) {
-      m_frame = (m_frame + 1) % (m_width);
+    // we only record samples while a shot is being pulled, the last shot
+    // stays on display until the next one starts
+    if (ctx.machineState == MachineState::espresso && ctx.lastSample.sampleTime != m_lastSample) {
+      m_head = (m_head + 1) % shot_graph_capacity;
       auto sample = ctx.lastSample;
-      m_frames[m_frame].weight = ctx.currentWeight;
-      m_frames[m_frame].groupPressure = sample.groupPressure;
-      m_frames[m_frame].headTemp = sample.headTemp;
-      m_frames[m_frame].groupFlow = sample.groupFlow;
-      m_frames[m_frame].weight = ctx.currentWeight;
-      m_frames[m_frame].scaleBLEState = ctx.getScaleBLEState();
+      m_frames[m_head].weight = ctx.currentWeight;
+      m_frames[m_head].groupPressure = sample.groupPressure;
+      m_frames[m_head].headTemp = sample.headTemp;
+      m_frames[m_head].groupFlow = sample.groupFlow;
+      m_frames[m_head].scaleBLEState = ctx.getScaleBLEState();
       m_lastSample = ctx.lastSample.sampleTime;
+
+      if (m_count < maxSamples()) {
+        m_count++;
+      }
       changed = true;
     }
 
     return changed;
   }
 
-  void plotValue(TFT_eSPI &tft, uint32_t color, double value, int min, int max, int offset) {
-    int x = (m_frame % m_width) + m_x;
-
-    // figure out our y
-    auto scaled = (value - min) / (double)(max - min) * (m_height - offset - 2);
-    int y = m_y + m_height - scaled - offset;
-
-    // don't draw out of bounds
-    if (y - 2 < m_y || y - 2 > m_y + m_height) {
-      return;
-    }
-    tft.drawLine(x, y, x, y - 2, color);
-  }
-
   void paint(TFT_eSPI &tft) override {
-    // clear our graph if appropriate
-    if (m_clear) {
-      tft.fillRoundRect(m_x - 1, m_y - 1, m_width + 2, m_height + 2, 10, theme.bg_color);
-      m_clear = false;
+    // render into a sprite so scrolling doesn't flicker, fall back to
+    // drawing directly if we can't get the memory for one
+    if (!m_sprite) {
+      m_sprite = new TFT_eSprite(&tft);
+      if (m_sprite->createSprite(m_width, m_height) == nullptr) {
+        delete m_sprite;
+        m_sprite = nullptr;
+        m_spriteFailed = true;
+      }
     }
 
-    // draw our current frame
-    int x = (m_frame % m_width) + m_x;
-
-    // clear ahead of us
-    tft.drawRect(x, m_y, min(x + 20, m_x + m_width) - x, m_height, theme.bg_color);
-
-    // if we are near the edge, clear there as well
-    if (x + 20 > m_width) {
-      auto wrap = (x + 20) % m_width;
-      tft.drawRect(m_x, m_y, wrap, m_height, theme.bg_color);
+    if (m_sprite && !m_spriteFailed) {
+      m_sprite->fillSprite(theme.bg_color);
+      drawFrames(*m_sprite, 0, 0);
+      m_sprite->drawRoundRect(0, 0, m_width, m_height, 10, theme.dash_border_color);
+      m_sprite->pushSprite(m_x, m_y);
+    } else {
+      tft.fillRect(m_x, m_y, m_width, m_height, theme.bg_color);
+      drawFrames(tft, m_x, m_y);
+      tft.drawRoundRect(m_x, m_y, m_width, m_height, 10, theme.dash_border_color);
     }
-
-    // draw our sample data if the machine is connected
-    if (m_machineBLEState == BLEState::connected) {
-      // draw our flow
-      plotValue(tft, theme.water_color, m_frames[m_frame].groupFlow, 0, 10, 45);
-
-      // draw our pressure
-      plotValue(tft, theme.pressure_color, m_frames[m_frame].groupPressure, 0, 12, 29);
-    }
-
-    // draw our weight if we have a scale connected
-    if (m_frames[m_frame].scaleBLEState == BLEState::connected) {
-      plotValue(tft, theme.weight_color, m_frames[m_frame].weight, 0, 50, 15);
-    }
-
-    // draw our border
-    tft.drawRoundRect(m_x, m_y, m_width, m_height, 10, theme.dash_border_color);
-    tft.drawRoundRect(m_x - 1, m_y - 1, m_width + 2, m_height + 2, 10, theme.dash_bg_color);
   }
 
  private:
+  // how many samples fit in our plot area
+  int maxSamples() {
+    return min(m_width - 4, shot_graph_capacity);
+  }
+
+  // draws our history oldest to newest as connected lines, newest hugging the
+  // right edge once we've filled the width so the graph scrolls left
+  void drawFrames(TFT_eSPI &gfx, int x0, int y0) {
+    int prevFlow = -1;
+    int prevPressure = -1;
+    int prevWeight = -1;
+
+    for (int i = 0; i < m_count; i++) {
+      auto &frame = m_frames[(m_head - m_count + 1 + i + shot_graph_capacity) % shot_graph_capacity];
+      int x = x0 + 2 + i;
+
+      int flow = valueY(y0, frame.groupFlow, 0, 10, 45);
+      plotValue(gfx, x, flow, prevFlow, theme.water_color);
+      prevFlow = flow;
+
+      int pressure = valueY(y0, frame.groupPressure, 0, 12, 29);
+      plotValue(gfx, x, pressure, prevPressure, theme.pressure_color);
+      prevPressure = pressure;
+
+      // weight only plots for samples taken with the scale connected
+      if (frame.scaleBLEState == BLEState::connected) {
+        int weight = valueY(y0, frame.weight, 0, 50, 15);
+        plotValue(gfx, x, weight, prevWeight, theme.weight_color);
+        prevWeight = weight;
+      } else {
+        prevWeight = -1;
+      }
+    }
+  }
+
+  // connects the previous sample to this one so fast changes leave no gaps
+  void plotValue(TFT_eSPI &gfx, int x, int y, int prevY, uint32_t color) {
+    if (prevY < 0) {
+      gfx.drawPixel(x, y, color);
+    } else {
+      gfx.drawLine(x - 1, prevY, x, y, color);
+    }
+  }
+
+  // scales a value to a y position, clamped inside our plot area
+  int valueY(int y0, double value, int min, int max, int offset) {
+    auto scaled = (value - min) / (double)(max - min) * (m_height - offset - 2);
+    int y = m_height - scaled - offset;
+
+    if (y < 2) {
+      y = 2;
+    } else if (y > m_height - 2) {
+      y = m_height - 2;
+    }
+    return y0 + y;
+  }
+
   int m_x;
   int m_y;
   int m_width;
   int m_height;
 
   BLEState m_machineBLEState = BLEState::unknown;
-  BLEState m_scaleBLEState = BLEState::unknown;
 
   MachineState m_state = MachineState::unknown;
   MachineSubstate m_substate = MachineSubstate::unknown;
 
   int m_lastSample = 0;
-  int m_frame = 0;
 
-  bool m_clear = false;
+  // ring buffer of samples, m_head is the newest, m_count how many are valid
+  int m_head = 0;
+  int m_count = 0;
+  ShotFrame m_frames[shot_graph_capacity];
 
-  ShotFrame m_frames[240];
+  TFT_eSprite *m_sprite = nullptr;
+  bool m_spriteFailed = false;
 };
 
 }  // namespace widget
