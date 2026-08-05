@@ -4,7 +4,7 @@ class Theme {
  public:
   Theme(int bg_color, int text_color, int ble_color, int error_color, int weight_color, int water_color,
         int water_low_color, int water_warn_color, int pressure_color, int temp_color, int dash_bg_color, int dash_border_color,
-        int banner_color, int banner_alt_color)
+        int banner_color, int banner_alt_color, int banner_good_color)
       : bg_color{uint32_t(bg_color)},
         text_color{uint32_t(text_color)},
         ble_color{uint32_t(ble_color)},
@@ -18,7 +18,8 @@ class Theme {
         dash_bg_color{uint32_t(dash_bg_color)},
         dash_border_color{uint32_t(dash_border_color)},
         banner_color{uint32_t(banner_color)},
-        banner_alt_color{uint32_t(banner_alt_color)} {}
+        banner_alt_color{uint32_t(banner_alt_color)},
+        banner_good_color{uint32_t(banner_good_color)} {}
   uint32_t bg_color;
   uint32_t text_color;
   uint32_t ble_color;
@@ -33,6 +34,7 @@ class Theme {
   uint32_t dash_border_color;
   uint32_t banner_color;
   uint32_t banner_alt_color;
+  uint32_t banner_good_color;
 };
 
 // note these are 16 bit RGB565
@@ -51,7 +53,8 @@ const Theme dark_theme = Theme{
     0x823,   // dash_bg_color
     0x001,   // dash_border_color
     0xFE20,  // banner_color
-    0x7EEF,  // banner_alt_color
+    0xBCBE,  // banner_alt_color
+    0x7EEF,  // banner_good_color
 };
 
 const auto theme = dark_theme;

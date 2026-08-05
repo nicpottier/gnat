@@ -19,11 +19,12 @@ class FeedbackBanner : public Widget {
 
     if (ctx.feedback != m_feedback ||
         (m_feedback == FeedbackType::add_water && waterLevel != m_waterLevel) ||
-        ctx.config.finerIsLeft() != m_finerLeft) {
+        ctx.config.finerIsLeft() != m_finerLeft || ctx.config.isFlipped() != m_flipped) {
       m_feedback = ctx.feedback;
       m_feedbackSeconds = ctx.feedbackSeconds;
       m_waterLevel = waterLevel;
       m_finerLeft = ctx.config.finerIsLeft();
+      m_flipped = ctx.config.isFlipped();
       return true;
     }
 
@@ -45,6 +46,11 @@ class FeedbackBanner : public Widget {
       snprintf(buffer, 16, "%dmm left", m_waterLevel);
       bg = theme.water_color;
       fg = TFT_WHITE;
+    } else if (m_feedback == FeedbackType::nailed_it) {
+      msg = "Nailed it!";
+      snprintf(buffer, 16, "%0.1fs shot", m_feedbackSeconds);
+      bg = theme.banner_good_color;
+      fg = theme.bg_color;
     } else {
       auto finer = m_feedback == FeedbackType::grind_finer;
       msg = finer ? "Grind Finer" : "Grind Coarser";
@@ -61,6 +67,8 @@ class FeedbackBanner : public Widget {
 
     if (m_feedback == FeedbackType::add_water) {
       drawDrop(tft, m_width / 2, iconCy, fg, bg);
+    } else if (m_feedback == FeedbackType::nailed_it) {
+      drawCheck(tft, m_width / 2, iconCy, fg);
     } else {
       // finer and coarser rotate opposite ways
       auto left = (m_feedback == FeedbackType::grind_finer) ? m_finerLeft : !m_finerLeft;
@@ -76,8 +84,13 @@ class FeedbackBanner : public Widget {
     tft.drawString(buffer, m_width / 2, m_height / 2 + 38);
     tft.setTextDatum(TL_DATUM);
 
-    // checkmark button hint in the bottom left for dismissing
-    drawDismiss(tft, 20, m_height - 20, fg, bg);
+    // checkmark hint by the physical dismiss button, bottom left normally,
+    // bottom right when the device is flipped
+    if (m_flipped) {
+      drawDismiss(tft, m_width - 20, m_height - 20, fg, bg);
+    } else {
+      drawDismiss(tft, 20, m_height - 20, fg, bg);
+    }
   }
 
  private:
@@ -126,6 +139,14 @@ class FeedbackBanner : public Widget {
     fillDrop(tft, cx, cy - 10, cy + 6, 6, bg);
   }
 
+  // a big checkmark matching the size and stroke weight of our other icons
+  void drawCheck(TFT_eSPI& tft, int cx, int cy, uint32_t color) {
+    for (int i = -2; i <= 2; i++) {
+      tft.drawLine(cx - 14, cy + i, cx - 5, cy + 9 + i, color);
+      tft.drawLine(cx - 5, cy + 9 + i, cx + 14, cy - 10 + i, color);
+    }
+  }
+
   // a small checkmark button hinting that a button press dismisses us
   void drawDismiss(TFT_eSPI& tft, int cx, int cy, uint32_t color, uint32_t bg) {
     tft.fillCircle(cx, cy, 11, color);
@@ -150,6 +171,7 @@ class FeedbackBanner : public Widget {
   double m_feedbackSeconds = 0;
   int m_waterLevel = 0;
   bool m_finerLeft = true;
+  bool m_flipped = false;
 };
 
 }  // namespace widget

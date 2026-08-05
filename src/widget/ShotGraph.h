@@ -38,9 +38,10 @@ class ShotGraph : public Widget {
     m_state = ctx.machineState;
     m_substate = ctx.machineSubstate;
 
-    // we only record samples while a shot is being pulled, the last shot
-    // stays on display until the next one starts
-    if (ctx.machineState == MachineState::espresso && ctx.lastSample.sampleTime != m_lastSample) {
+    // we only record samples from preinfusion through the end of the pour, the
+    // last shot stays on display until the next one starts
+    if (ctx.machineState == MachineState::espresso && ctx.machineSubstate >= MachineSubstate::preinfusing &&
+        ctx.machineSubstate <= MachineSubstate::ending && ctx.lastSample.sampleTime != m_lastSample) {
       m_head = (m_head + 1) % shot_graph_capacity;
       auto sample = ctx.lastSample;
       m_frames[m_head].weight = ctx.currentWeight;

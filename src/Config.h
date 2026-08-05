@@ -11,6 +11,7 @@ static const char* refill_level_key = "refill_level";
 static const char* warn_level_key = "warn_level";
 static const char* finer_direction_key = "finer_direction";
 static const char* shot_margin_key = "shot_margin";
+static const char* orientation_key = "orientation";
 static const char* profile_key = "profile";
 static const char* enabled_key = "enabled";
 static const char* error_key = "error";
@@ -41,6 +42,11 @@ static const int default_shot_margin = 3;
 static const int max_shot_margin = 15;
 static const int min_shot_margin = 1;
 
+// how the device sits, flipped means rotated 180 degrees
+static const int orientation_normal = 1;
+static const int orientation_flipped = 2;
+static const int default_orientation = orientation_normal;
+
 // which way the grinder rotates for finer, 1 = left, 2 = right
 static const int finer_direction_left = 1;
 static const int finer_direction_right = 2;
@@ -67,6 +73,7 @@ class Config {
         m_warnLevel{default_warn_level},
         m_finerDirection{default_finer_direction},
         m_shotMargin{default_shot_margin},
+        m_orientation{default_orientation},
         m_profile{profile_default},
         m_error(ConfigError::none) {
     resetEnabled();
@@ -80,12 +87,14 @@ class Config {
     auto warnLevel = getUnsignedInt(query, warn_level_key);
     auto finerDirection = getUnsignedInt(query, finer_direction_key);
     auto shotMargin = getUnsignedInt(query, shot_margin_key);
+    auto orientation = getUnsignedInt(query, orientation_key);
     auto profile = getUnsignedInt(query, profile_key);
 
     char enabled[max_profile_mask_bytes * 2 + 1] = "";
     getStringValue(query, enabled_key, enabled, sizeof(enabled));
 
-    return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, profile, enabled);
+    return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, orientation, profile,
+                  enabled);
   }
 
   static Config fromRequest(AsyncWebServerRequest* request) {
@@ -126,13 +135,19 @@ class Config {
       shotMargin = parseUnsignedInt(param->value().c_str());
     }
 
+    int orientation = 0;
+    param = request->getParam(orientation_key, true, false);
+    if (param) {
+      orientation = parseUnsignedInt(param->value().c_str());
+    }
+
     const char* enabled = "";
     param = request->getParam(enabled_key, true, false);
     if (param) {
       enabled = param->value().c_str();
     }
 
-    return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, 0, enabled);
+    return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, orientation, 0, enabled);
   }
 
   // returns a url encoded version of the config, suitable for writing to EEProm
@@ -161,6 +176,10 @@ class Config {
     if (m_shotMargin != 0) {
       size -= strlen(field);
       field += snprintf(field, size, "%s=%d&", shot_margin_key, m_shotMargin);
+    }
+    if (m_orientation != 0) {
+      size -= strlen(field);
+      field += snprintf(field, size, "%s=%d&", orientation_key, m_orientation);
     }
     if (m_profile != 0) {
       size -= strlen(field);
@@ -215,6 +234,11 @@ class Config {
   // how many seconds from the target shot time before we suggest a grind change
   int getShotMargin() {
     return m_shotMargin;
+  }
+
+  // whether the device sits rotated 180 degrees
+  bool isFlipped() {
+    return m_orientation == orientation_flipped;
   }
 
   // the selected profile, 1-based
@@ -275,13 +299,14 @@ class Config {
 
  private:
   Config(int sleepTime, int stopAtWeight, int refillLevel, int warnLevel, int finerDirection, int shotMargin,
-         int profile, const char* enabled)
+         int orientation, int profile, const char* enabled)
       : m_sleepTime{sleepTime},
         m_stopWeight{stopAtWeight},
         m_refillLevel{refillLevel},
         m_warnLevel{warnLevel},
         m_finerDirection{finerDirection},
         m_shotMargin{shotMargin},
+        m_orientation{orientation},
         m_profile{profile},
         m_error{ConfigError::none} {
     setEnabledFromHex(enabled);
@@ -319,6 +344,10 @@ class Config {
       m_shotMargin = default_shot_margin;
     } else if (m_shotMargin < min_shot_margin || m_shotMargin > max_shot_margin) {
       m_error = ConfigError::invalid_shot_margin;
+    }
+
+    if (m_orientation < orientation_normal || m_orientation > orientation_flipped) {
+      m_orientation = default_orientation;
     }
 
     if (m_profile == 0 || m_profile > profile_count || !isProfileEnabled(m_profile - 1)) {
@@ -473,6 +502,7 @@ class Config {
 
     char buffer[12];
     strncpy(buffer, start, end - start);
+    buffer[end - start] = 0;
     auto value = parseUnsignedInt(buffer);
 
     return value;
@@ -495,6 +525,9 @@ class Config {
 
   // seconds from the target shot time before we suggest a grind change
   int m_shotMargin;
+
+  // how the device sits
+  int m_orientation;
 
   // the selected profile, 1-based index into the compiled in profiles
   int m_profile;

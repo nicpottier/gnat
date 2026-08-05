@@ -57,6 +57,13 @@
             </select>
             <small>Which way your grinder rotates for a finer grind.</small>
 
+            <label for="orientation">Orientation</label>
+            <select name="orientation" id="orientation">
+                <option value="1" selected>Normal</option>
+                <option value="2">Flipped</option>
+            </select>
+            <small>Flipped rotates the display 180 degrees for upside down mounting, applied after a restart.</small>
+
             <label>Profiles</label>
             <div id="profiles" style="max-height:20rem;overflow-y:auto;" class="bordered"></div>
             <small>Profiles the button on your gnat cycles through.</small>
@@ -89,6 +96,11 @@
     const finerDirection = urlParams.get("finer_direction");
     if (finerDirection) {
         document.getElementById("finer_direction").value = finerDirection;
+    }
+
+    const orientation = urlParams.get("orientation");
+    if (orientation) {
+        document.getElementById("orientation").value = orientation;
     }
 
     // fetch our profile names and render them as checkboxes, checked state

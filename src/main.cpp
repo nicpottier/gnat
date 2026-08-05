@@ -443,15 +443,23 @@ void setup() {
   ledcWrite(BACKLIGHT_PWM_CHANNEL, BACKLIGHT_ON);
 #endif
 
-  pinMode(MENU_BUTTON_PIN, INPUT_PULLUP);
-  attachInterrupt(MENU_BUTTON_PIN, menuButtonPressed, FALLING);
-
+  // when flipped the physical positions of our buttons swap, keep the lower
+  // button as the profile / dismiss button and the upper one as menu
+  auto menuPin = MENU_BUTTON_PIN;
 #ifdef PROFILE_BUTTON_PIN
-  pinMode(PROFILE_BUTTON_PIN, INPUT_PULLUP);
-  attachInterrupt(PROFILE_BUTTON_PIN, profileButtonPressed, FALLING);
+  auto profilePin = PROFILE_BUTTON_PIN;
+  if (g_ctx.config.isFlipped()) {
+    menuPin = PROFILE_BUTTON_PIN;
+    profilePin = MENU_BUTTON_PIN;
+  }
+  pinMode(profilePin, INPUT_PULLUP);
+  attachInterrupt(profilePin, profileButtonPressed, FALLING);
 #endif
 
-  tft.setRotation(3);
+  pinMode(menuPin, INPUT_PULLUP);
+  attachInterrupt(menuPin, menuButtonPressed, FALLING);
+
+  tft.setRotation(g_ctx.config.isFlipped() ? 1 : 3);
   tft.setSwapBytes(true);
   tft.fillScreen(theme.bg_color);
 }
@@ -493,6 +501,7 @@ void loop() {
   unsigned long pourStart = 0;
   auto lastFeedback = FeedbackType::none;
   bool waterWarnDismissed = false;
+  auto lastFlipped = g_ctx.config.isFlipped();
 
   while (true) {
     while (xQueueReceive(updateQ, (void*)&d, 0) == pdTRUE) {
@@ -562,7 +571,9 @@ void loop() {
         auto seconds = (millis() - pourStart) / (double)1000;
         g_ctx.feedbackSeconds = seconds;
         auto margin = (double)g_ctx.config.getShotMargin();
-        if (seconds <= TARGET_SHOT_SECONDS - margin) {
+        if (fabs(seconds - TARGET_SHOT_SECONDS) <= 0.5) {
+          g_ctx.feedback = FeedbackType::nailed_it;
+        } else if (seconds <= TARGET_SHOT_SECONDS - margin) {
           g_ctx.feedback = FeedbackType::grind_finer;
         } else if (seconds >= TARGET_SHOT_SECONDS + margin) {
           g_ctx.feedback = FeedbackType::grind_coarser;
@@ -655,6 +666,12 @@ void loop() {
         auto profile = cmd::CommandRequest::newProfileCommand(g_ctx.config.getProfile() - 1);
         xQueueSend(cmdQ, &profile, 10);
         profileChangedTick = 0;
+      }
+
+      // orientation changes need a restart to take effect
+      if (g_ctx.config.isFlipped() != lastFlipped) {
+        lastFlipped = g_ctx.config.isFlipped();
+        g_ctx.restartTickID = g_ctx.tickID + restart_tick_delay;
       }
 
       // if it's time to reboot, do so
