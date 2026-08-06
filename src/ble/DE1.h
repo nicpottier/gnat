@@ -13,6 +13,10 @@ const auto de1_water_uuid = "0xa011";
 const auto de1_sample_uuid = "0xa00d";
 const auto de1_header_uuid = "0xa00f";
 const auto de1_frame_uuid = "0xa010";
+const auto de1_mmr_write_uuid = "0xa006";
+
+// MMR register holding the flush timeout, value is tenths of a second
+const uint32_t de1_mmr_flush_timeout = 0x803848;
 
 const uint8_t de1_sleep_cmd = 0x00;
 const uint8_t de1_stop_cmd = 0x02;
@@ -85,6 +89,19 @@ class DE1 : public Device, public Machine {
     // if we are connected, upload the profile immediately
     if (m_headerChar && m_frameChar) {
       return uploadProfile();
+    }
+    return true;
+  }
+
+  bool setFlushSeconds(int seconds) {
+    if (seconds < 1 || seconds > 60) {
+      return false;
+    }
+    m_flushSeconds = seconds;
+
+    // if we are connected, update the machine immediately
+    if (m_mmrChar) {
+      return writeFlushTimeout();
     }
     return true;
   }
@@ -169,6 +186,10 @@ class DE1 : public Device, public Machine {
           m_frameChar = ch;
         }
 
+        if (ch->getUUID().toString() == de1_mmr_write_uuid) {
+          m_mmrChar = ch;
+        }
+
         if (ch->canNotify()) {
           Serial.print("  CAN NOTIFY");
           // state update
@@ -218,6 +239,13 @@ class DE1 : public Device, public Machine {
       }
     }
 
+    // set how long flushes should run
+    if (m_mmrChar) {
+      if (writeFlushTimeout()) {
+        Serial.printf("[%s] set flush timeout: %ds\n", getName().c_str(), m_flushSeconds);
+      }
+    }
+
     // load our selected profile onto the machine
     if (m_headerChar && m_frameChar) {
       if (uploadProfile()) {
@@ -234,6 +262,7 @@ class DE1 : public Device, public Machine {
     m_waterChar = nullptr;
     m_headerChar = nullptr;
     m_frameChar = nullptr;
+    m_mmrChar = nullptr;
   }
 
   void selfRegister(Devices* devices) {
@@ -271,14 +300,34 @@ class DE1 : public Device, public Machine {
     return true;
   }
 
+  // writes an MMR register, 4 byte little endian value
+  bool writeMMR(uint32_t address, uint32_t value) {
+    uint8_t packet[20] = {0};
+    packet[0] = 4;  // length of the value in bytes
+    packet[1] = (address >> 16) & 0xFF;
+    packet[2] = (address >> 8) & 0xFF;
+    packet[3] = address & 0xFF;
+    packet[4] = value & 0xFF;
+    packet[5] = (value >> 8) & 0xFF;
+    packet[6] = (value >> 16) & 0xFF;
+    packet[7] = (value >> 24) & 0xFF;
+    return m_mmrChar->writeValue(packet, sizeof(packet), true);
+  }
+
+  bool writeFlushTimeout() {
+    return writeMMR(de1_mmr_flush_timeout, m_flushSeconds * 10);
+  }
+
   NimBLERemoteCharacteristic* m_cmdChar = nullptr;
   NimBLERemoteCharacteristic* m_stateChar = nullptr;
   NimBLERemoteCharacteristic* m_waterChar = nullptr;
   NimBLERemoteCharacteristic* m_headerChar = nullptr;
   NimBLERemoteCharacteristic* m_frameChar = nullptr;
+  NimBLERemoteCharacteristic* m_mmrChar = nullptr;
 
   uint8_t m_refillLevelMm = de1_default_refill_level_mm;
   int m_profileIdx = 0;
+  int m_flushSeconds = 3;
 };
 
 }  // namespace ble

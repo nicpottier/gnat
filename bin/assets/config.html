@@ -46,6 +46,10 @@
             <input type="number" name="warn_level" id="warn_level" placeholder="10" min="1" max="40" required>
             <small>Water level in millimeters at which gnat suggests adding water.</small>
 
+            <label for="flush_seconds">Flush Time (s)</label>
+            <input type="number" name="flush_seconds" id="flush_seconds" placeholder="3" min="1" max="30" required>
+            <small>How many seconds your machine runs a flush for.</small>
+
             <label for="shot_margin">Grind Margin (s)</label>
             <input type="number" name="shot_margin" id="shot_margin" placeholder="3" min="1" max="15" required>
             <small>Seconds off the 30 second shot target before gnat suggests a grind change.</small>
@@ -89,6 +93,9 @@
 
     const warnLevel = urlParams.get("warn_level");
     document.getElementById("warn_level").value = warnLevel;
+
+    const flushSeconds = urlParams.get("flush_seconds");
+    document.getElementById("flush_seconds").value = flushSeconds;
 
     const shotMargin = urlParams.get("shot_margin");
     document.getElementById("shot_margin").value = shotMargin;

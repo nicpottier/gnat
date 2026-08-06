@@ -360,6 +360,7 @@ void setup() {
   // safe to set directly, our ble task hasn't started yet
   de1->setRefillLevel(g_ctx.config.getRefillLevel());
   de1->setProfile(g_ctx.config.getProfile() - 1);
+  de1->setFlushSeconds(g_ctx.config.getFlushSeconds());
 
   s_brewScreen = new Screen{ScreenID::brew};
   s_brewScreen->addWidget(new widget::BrewBackground{screenWidth, screenHeight});
@@ -588,6 +589,15 @@ void loop() {
         pourStart = 0;
       }
 
+      // the add water banner dismisses itself once the tank is topped up
+      if (g_ctx.feedback == FeedbackType::add_water && !g_ctx.feedbackPreview &&
+          g_ctx.waterLevel > g_ctx.config.getWarnLevel()) {
+        g_ctx.feedback = FeedbackType::none;
+        if (g_ctx.screen == ScreenID::feedback) {
+          g_ctx.screen = ScreenID::brew;
+        }
+      }
+
       // note when the add water banner is dismissed while still low so we don't
       // immediately show it again
       if (lastFeedback == FeedbackType::add_water && g_ctx.feedback == FeedbackType::none &&
@@ -644,11 +654,13 @@ void loop() {
         }
       }
 
-      // if our config changed, pass along our new refill level
+      // if our config changed, pass along our new refill level and flush time
       if (g_ctx.config.getVersion() != lastConfigVersion) {
         lastConfigVersion = g_ctx.config.getVersion();
         auto refill = cmd::CommandRequest::newRefillLevelCommand(g_ctx.config.getRefillLevel());
         xQueueSend(cmdQ, &refill, 10);
+        auto flush = cmd::CommandRequest::newFlushSecondsCommand(g_ctx.config.getFlushSeconds());
+        xQueueSend(cmdQ, &flush, 10);
       }
 
       // if our selected profile changed, start (or restart) our settle timer, this

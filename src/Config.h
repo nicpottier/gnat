@@ -12,6 +12,7 @@ static const char* warn_level_key = "warn_level";
 static const char* finer_direction_key = "finer_direction";
 static const char* shot_margin_key = "shot_margin";
 static const char* orientation_key = "orientation";
+static const char* flush_seconds_key = "flush_seconds";
 static const char* profile_key = "profile";
 static const char* enabled_key = "enabled";
 static const char* error_key = "error";
@@ -21,6 +22,7 @@ static const char* invalid_stop_weight_error = "Invalid+stop+weight,+must+be+les
 static const char* invalid_refill_level_error = "Invalid+refill+level,+must+be+between+1+and+20";
 static const char* invalid_warn_level_error = "Invalid+warning+level,+must+be+between+1+and+40";
 static const char* invalid_shot_margin_error = "Invalid+shot+margin,+must+be+between+1+and+15";
+static const char* invalid_flush_seconds_error = "Invalid+flush+time,+must+be+between+1+and+30";
 
 static const int default_stop_weight = 36;
 static const int max_stop_weight = 100;
@@ -42,6 +44,10 @@ static const int default_shot_margin = 3;
 static const int max_shot_margin = 15;
 static const int min_shot_margin = 1;
 
+static const int default_flush_seconds = 3;
+static const int max_flush_seconds = 30;
+static const int min_flush_seconds = 1;
+
 // how the device sits, flipped means rotated 180 degrees
 static const int orientation_normal = 1;
 static const int orientation_flipped = 2;
@@ -62,6 +68,7 @@ enum class ConfigError {
   invalid_refill_level,
   invalid_warn_level,
   invalid_shot_margin,
+  invalid_flush_seconds,
 };
 
 class Config {
@@ -74,6 +81,7 @@ class Config {
         m_finerDirection{default_finer_direction},
         m_shotMargin{default_shot_margin},
         m_orientation{default_orientation},
+        m_flushSeconds{default_flush_seconds},
         m_profile{profile_default},
         m_error(ConfigError::none) {
     resetEnabled();
@@ -88,13 +96,14 @@ class Config {
     auto finerDirection = getUnsignedInt(query, finer_direction_key);
     auto shotMargin = getUnsignedInt(query, shot_margin_key);
     auto orientation = getUnsignedInt(query, orientation_key);
+    auto flushSeconds = getUnsignedInt(query, flush_seconds_key);
     auto profile = getUnsignedInt(query, profile_key);
 
     char enabled[max_profile_mask_bytes * 2 + 1] = "";
     getStringValue(query, enabled_key, enabled, sizeof(enabled));
 
-    return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, orientation, profile,
-                  enabled);
+    return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, orientation,
+                  flushSeconds, profile, enabled);
   }
 
   static Config fromRequest(AsyncWebServerRequest* request) {
@@ -141,13 +150,20 @@ class Config {
       orientation = parseUnsignedInt(param->value().c_str());
     }
 
+    int flushSeconds = 0;
+    param = request->getParam(flush_seconds_key, true, false);
+    if (param) {
+      flushSeconds = parseUnsignedInt(param->value().c_str());
+    }
+
     const char* enabled = "";
     param = request->getParam(enabled_key, true, false);
     if (param) {
       enabled = param->value().c_str();
     }
 
-    return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, orientation, 0, enabled);
+    return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, orientation,
+                  flushSeconds, 0, enabled);
   }
 
   // returns a url encoded version of the config, suitable for writing to EEProm
@@ -181,6 +197,10 @@ class Config {
       size -= strlen(field);
       field += snprintf(field, size, "%s=%d&", orientation_key, m_orientation);
     }
+    if (m_flushSeconds != 0) {
+      size -= strlen(field);
+      field += snprintf(field, size, "%s=%d&", flush_seconds_key, m_flushSeconds);
+    }
     if (m_profile != 0) {
       size -= strlen(field);
       field += snprintf(field, size, "%s=%d&", profile_key, m_profile);
@@ -205,6 +225,9 @@ class Config {
     } else if (m_error == ConfigError::invalid_shot_margin) {
       size -= strlen(field);
       field += snprintf(field, size, "%s=%s", error_key, invalid_shot_margin_error);
+    } else if (m_error == ConfigError::invalid_flush_seconds) {
+      size -= strlen(field);
+      field += snprintf(field, size, "%s=%s", error_key, invalid_flush_seconds_error);
     }
     return buffer;
   }
@@ -239,6 +262,11 @@ class Config {
   // whether the device sits rotated 180 degrees
   bool isFlipped() {
     return m_orientation == orientation_flipped;
+  }
+
+  // how long the machine should run a flush for
+  int getFlushSeconds() {
+    return m_flushSeconds;
   }
 
   // the selected profile, 1-based
@@ -299,7 +327,7 @@ class Config {
 
  private:
   Config(int sleepTime, int stopAtWeight, int refillLevel, int warnLevel, int finerDirection, int shotMargin,
-         int orientation, int profile, const char* enabled)
+         int orientation, int flushSeconds, int profile, const char* enabled)
       : m_sleepTime{sleepTime},
         m_stopWeight{stopAtWeight},
         m_refillLevel{refillLevel},
@@ -307,6 +335,7 @@ class Config {
         m_finerDirection{finerDirection},
         m_shotMargin{shotMargin},
         m_orientation{orientation},
+        m_flushSeconds{flushSeconds},
         m_profile{profile},
         m_error{ConfigError::none} {
     setEnabledFromHex(enabled);
@@ -348,6 +377,12 @@ class Config {
 
     if (m_orientation < orientation_normal || m_orientation > orientation_flipped) {
       m_orientation = default_orientation;
+    }
+
+    if (m_flushSeconds == 0) {
+      m_flushSeconds = default_flush_seconds;
+    } else if (m_flushSeconds < min_flush_seconds || m_flushSeconds > max_flush_seconds) {
+      m_error = ConfigError::invalid_flush_seconds;
     }
 
     if (m_profile == 0 || m_profile > profile_count || !isProfileEnabled(m_profile - 1)) {
@@ -528,6 +563,9 @@ class Config {
 
   // how the device sits
   int m_orientation;
+
+  // how long the machine should run a flush for, in seconds
+  int m_flushSeconds;
 
   // the selected profile, 1-based index into the compiled in profiles
   int m_profile;
