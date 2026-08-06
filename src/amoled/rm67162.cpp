@@ -125,15 +125,26 @@ static void lcd_send_cmd(uint32_t cmd, uint8_t *dat, uint32_t len)
 void rm67162_init(void)
 {
     // fully power cycle the panel, warm resets can leave it latched in a bad
-    // state that only losing power clears
+    // state that only losing power clears, drive every line low first so the
+    // panel can't back power itself through the signal pins
+    int lines[] = {TFT_QSPI_CS, TFT_QSPI_SCK, TFT_QSPI_D0, TFT_QSPI_D1, TFT_QSPI_D2, TFT_QSPI_D3, TFT_QSPI_RST};
+    for (auto line : lines) {
+        pinMode(line, OUTPUT);
+        digitalWrite(line, LOW);
+    }
     pinMode(PIN_PMIC_EN, OUTPUT);
     digitalWrite(PIN_PMIC_EN, LOW);
-    delay(200);
+    delay(500);
     digitalWrite(PIN_PMIC_EN, HIGH);
-    delay(100);
+    delay(120);
 
     pinMode(TFT_CS, OUTPUT);
     pinMode(TFT_RES, OUTPUT);
+    digitalWrite(TFT_CS, HIGH);
+
+    // full reset dance
+    TFT_RES_H;
+    delay(200);
 
     TFT_RES_L;
     delay(300);

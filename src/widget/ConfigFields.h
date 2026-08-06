@@ -45,8 +45,8 @@ class ConfigFields : public Widget {
     tft.drawString("Water levels:", m_x, m_y + px(36));
     tft.drawString(buffer, m_x + px(128), m_y + px(36));
 
-    snprintf(buffer, 16, "%ds", m_config.getShotMargin());
-    tft.drawString("Grind margin:", m_x, m_y + px(54));
+    snprintf(buffer, 16, "%ds / %ds", m_config.getShotTarget(), m_config.getShotMargin());
+    tft.drawString("Shot timer:", m_x, m_y + px(54));
     tft.drawString(buffer, m_x + px(128), m_y + px(54));
 
     snprintf(buffer, 16, "%d of %d", m_config.enabledProfileCount(), profile_count);

@@ -50,9 +50,13 @@
             <input type="number" name="flush_seconds" id="flush_seconds" placeholder="3" min="1" max="30" required>
             <small>How many seconds your machine runs a flush for.</small>
 
+            <label for="shot_target">Target Shot (s)</label>
+            <input type="number" name="shot_target" id="shot_target" placeholder="30" min="15" max="60" required>
+            <small>The shot time you are aiming for in seconds.</small>
+
             <label for="shot_margin">Grind Margin (s)</label>
             <input type="number" name="shot_margin" id="shot_margin" placeholder="3" min="1" max="15" required>
-            <small>Seconds off the 30 second shot target before gnat suggests a grind change.</small>
+            <small>Seconds off the target before gnat suggests a grind change.</small>
 
             <label for="finer_direction">Finer Direction</label>
             <select name="finer_direction" id="finer_direction">
@@ -96,6 +100,9 @@
 
     const flushSeconds = urlParams.get("flush_seconds");
     document.getElementById("flush_seconds").value = flushSeconds;
+
+    const shotTarget = urlParams.get("shot_target");
+    document.getElementById("shot_target").value = shotTarget;
 
     const shotMargin = urlParams.get("shot_margin");
     document.getElementById("shot_margin").value = shotMargin;

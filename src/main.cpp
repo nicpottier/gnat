@@ -19,6 +19,11 @@
 #include <touch/CST816.h>
 CST816 g_touch;
 bool g_touchWasDown = false;
+bool g_touchCircle = false;
+int g_touchStartX = 0;
+int g_touchStartY = 0;
+int g_touchLastX = 0;
+int g_touchLastY = 0;
 #endif
 
 #include <AsyncTCP.h>
@@ -34,6 +39,7 @@ bool g_touchWasDown = false;
 #include <widget/BrewBackground.h>
 #include <widget/ConfigBackground.h>
 #include <widget/ConfigFields.h>
+#include <widget/AdjustFields.h>
 #include <widget/ConnectInstructions.h>
 #include <widget/FeedbackBanner.h>
 #include <widget/MachineStatus.h>
@@ -83,6 +89,7 @@ static Screen* s_brewScreen;
 static Screen* s_connectScreen;
 static Screen* s_configScreen;
 static Screen* s_feedbackScreen;
+static Screen* s_adjustScreen;
 
 const int BACKLIGHT_PWM_FREQ = 10000;
 const int BACKLIGHT_PWM_RESOLUTION = 8;
@@ -467,6 +474,9 @@ void setup() {
   s_feedbackScreen = new Screen{ScreenID::feedback};
   s_feedbackScreen->addWidget(new widget::FeedbackBanner{screenWidth, screenHeight});
 
+  s_adjustScreen = new Screen{ScreenID::adjust};
+  s_adjustScreen->addWidget(new widget::AdjustFields{screenWidth, screenHeight});
+
   /** *Optional* Sets the filtering mode used by the scanner in the BLE
    * controller.
    *
@@ -596,9 +606,6 @@ const unsigned long CMD_TIMEOUT = 2000 / TICK_TARGET;
 // how long a profile selection needs to settle before we persist and upload it
 const unsigned long PROFILE_SETTLE_TICKS = 3000 / TICK_TARGET;
 
-// our target shot time, the configurable margin decides when we call it out
-const double TARGET_SHOT_SECONDS = 30;
-
 void loop() {
   // container for the commands we pop off our queue
   auto d = data::DataUpdate{UpdateType::null_update};
@@ -612,6 +619,7 @@ void loop() {
   auto lastProfile = g_ctx.config.getProfile();
   unsigned long profileChangedTick = 0;
   unsigned long pourStart = 0;
+  unsigned long adjustDirtyTick = 0;
   auto lastFeedback = FeedbackType::none;
   bool waterWarnDismissed = false;
   auto lastFlipped = g_ctx.config.isFlipped();
@@ -633,6 +641,7 @@ void loop() {
       painted |= s_connectScreen->tickAndPaint(g_ctx, gfx);
       painted |= s_configScreen->tickAndPaint(g_ctx, gfx);
       painted |= s_feedbackScreen->tickAndPaint(g_ctx, gfx);
+      painted |= s_adjustScreen->tickAndPaint(g_ctx, gfx);
 
 #ifdef DISPLAY_RM67162
       // push our frame to the panel when anything changed
@@ -695,12 +704,13 @@ void loop() {
           pourStart > 0) {
         auto seconds = (millis() - pourStart) / (double)1000;
         g_ctx.feedbackSeconds = seconds;
+        auto target = (double)g_ctx.config.getShotTarget();
         auto margin = (double)g_ctx.config.getShotMargin();
-        if (fabs(seconds - TARGET_SHOT_SECONDS) <= 0.5) {
+        if (fabs(seconds - target) <= 0.5) {
           g_ctx.feedback = FeedbackType::nailed_it;
-        } else if (seconds <= TARGET_SHOT_SECONDS - margin) {
+        } else if (seconds <= target - margin) {
           g_ctx.feedback = FeedbackType::grind_finer;
-        } else if (seconds >= TARGET_SHOT_SECONDS + margin) {
+        } else if (seconds >= target + margin) {
           g_ctx.feedback = FeedbackType::grind_coarser;
         } else {
           g_ctx.feedback = FeedbackType::none;
@@ -779,10 +789,12 @@ void loop() {
       }
 
 #ifdef TOUCH_CST816
-      // poll for taps, act on the initial press
+      // poll the touch controller, tracking presses so we can tell taps from
+      // swipes when the finger lifts
       int touchX, touchY;
       bool touchDown = g_touch.read(touchX, touchY);
-      if (touchDown && !g_touchWasDown) {
+
+      if (touchDown) {
         // the round capacitive button reports out past the panel
         bool circle = touchX >= 560;
 
@@ -793,30 +805,110 @@ void loop() {
           ux = screenWidth - 1 - ux;
           uy = screenHeight - 1 - uy;
         }
-        Serial.printf("[TOUCH] raw %d,%d ui %d,%d circle %d\n", touchX, touchY, ux, uy, circle);
 
-        if (circle) {
-          // the circle button acts as our menu button
-          auto nextScreen = ScreenID::brew;
-          if (g_ctx.screen == ScreenID::brew) {
-            nextScreen = ScreenID::connect;
-          } else if (g_ctx.screen == ScreenID::connect) {
-            nextScreen = ScreenID::config;
+        if (!g_touchWasDown) {
+          g_touchCircle = circle;
+          g_touchStartX = ux;
+          g_touchStartY = uy;
+
+          // the circle is a home button, from any other screen it returns to
+          // brew, from the brew screen it opens the menu screens
+          if (circle) {
+            auto nextScreen = ScreenID::brew;
+            if (g_ctx.screen == ScreenID::brew) {
+              nextScreen = ScreenID::connect;
+            }
+            auto screen = data::DataUpdate::newScreenUpdate(nextScreen);
+            xQueueSend(updateQ, &screen, 10);
           }
-          auto screen = data::DataUpdate::newScreenUpdate(nextScreen);
-          xQueueSend(updateQ, &screen, 10);
-        } else if (g_ctx.screen == ScreenID::feedback) {
-          // tapping the dismiss button clears the banner
-          auto cx = screenWidth - px(DISMISS_BTN_MARGIN);
-          auto cy = screenHeight - px(DISMISS_BTN_MARGIN);
-          auto r = px(DISMISS_BTN_R) * 2;
-          if (abs(ux - cx) <= r && abs(uy - cy) <= r) {
+        }
+        if (!circle) {
+          g_touchLastX = ux;
+          g_touchLastY = uy;
+        }
+      } else if (g_touchWasDown && !g_touchCircle) {
+        // finger lifted, decide what the gesture was
+        int dx = g_touchLastX - g_touchStartX;
+        int dy = g_touchLastY - g_touchStartY;
+        Serial.printf("[TOUCH] release at %d,%d delta %d,%d\n", g_touchLastX, g_touchLastY, dx, dy);
+
+        if (abs(dx) >= px(50) && abs(dx) > abs(dy)) {
+          // horizontal swipe, left moves forward through the adjust pages,
+          // right moves back, wrapping to the brew screen at either end
+          if (dx < 0) {
+            if (g_ctx.screen == ScreenID::brew) {
+              g_ctx.adjustPage = 0;
+              g_ctx.screen = ScreenID::adjust;
+            } else if (g_ctx.screen == ScreenID::adjust) {
+              if (++g_ctx.adjustPage >= widget::adjust_page_count) {
+                g_ctx.screen = ScreenID::brew;
+              }
+            }
+          } else {
+            if (g_ctx.screen == ScreenID::brew) {
+              g_ctx.adjustPage = widget::adjust_page_count - 1;
+              g_ctx.screen = ScreenID::adjust;
+            } else if (g_ctx.screen == ScreenID::adjust) {
+              if (g_ctx.adjustPage == 0) {
+                g_ctx.screen = ScreenID::brew;
+              } else {
+                g_ctx.adjustPage--;
+              }
+            }
+          }
+        } else if (abs(dx) < px(15) && abs(dy) < px(15)) {
+          // a tap
+          if (g_ctx.screen == ScreenID::brew) {
+            // tapping the brew screen cycles the profile
             auto cycle = data::DataUpdate::newProfileCycleUpdate();
             xQueueSend(updateQ, &cycle, 10);
+          } else if (g_ctx.screen == ScreenID::feedback) {
+            // tapping the dismiss button clears the banner
+            auto cx = screenWidth - px(DISMISS_BTN_MARGIN);
+            auto cy = screenHeight - px(DISMISS_BTN_MARGIN);
+            auto r = px(DISMISS_BTN_R) * 2;
+            if (abs(g_touchStartX - cx) <= r && abs(g_touchStartY - cy) <= r) {
+              auto cycle = data::DataUpdate::newProfileCycleUpdate();
+              xQueueSend(updateQ, &cycle, 10);
+            }
+          } else if (g_ctx.screen == ScreenID::adjust && g_ctx.adjustPage < widget::adjust_page_count) {
+            // tapping a +/- button steps its value
+            auto& page = widget::adjust_pages[g_ctx.adjustPage];
+            for (int i = 0; i < page.valueCount; i++) {
+              auto& value = page.values[i];
+
+              if (value.names) {
+                // named values have one wide toggle button
+                int bx, by, bw, bh;
+                widget::adjustToggleRect(i, bx, by, bw, bh);
+                if (g_touchStartX >= bx && g_touchStartX <= bx + bw && g_touchStartY >= by - px(8) &&
+                    g_touchStartY <= by + bh + px(8)) {
+                  widget::adjustToggle(g_ctx.config, value);
+                  adjustDirtyTick = g_ctx.tickID;
+                }
+                continue;
+              }
+
+              for (int plus = 0; plus <= 1; plus++) {
+                int cx, cy;
+                widget::adjustButtonCenter(i, plus, cx, cy);
+                auto r = px(widget::adjust_button_r) * 3 / 2;
+                if (abs(g_touchStartX - cx) <= r && abs(g_touchStartY - cy) <= r) {
+                  value.set(g_ctx.config, value.get(g_ctx.config) + (plus ? value.step : -value.step));
+                  adjustDirtyTick = g_ctx.tickID;
+                }
+              }
+            }
           }
         }
       }
       g_touchWasDown = touchDown;
+
+      // persist adjusted settings once the taps settle
+      if (adjustDirtyTick > 0 && g_ctx.tickID - adjustDirtyTick > PROFILE_SETTLE_TICKS) {
+        writeConfig(g_ctx.config);
+        adjustDirtyTick = 0;
+      }
 #endif
 
       // if our config changed, pass along our new refill level and flush time
@@ -845,9 +937,11 @@ void loop() {
         profileChangedTick = 0;
       }
 
-      // orientation changes need a restart to take effect
+      // orientation changes need a restart to take effect, persist first so
+      // the change survives the reboot
       if (g_ctx.config.isFlipped() != lastFlipped) {
         lastFlipped = g_ctx.config.isFlipped();
+        writeConfig(g_ctx.config);
         g_ctx.restartTickID = g_ctx.tickID + restart_tick_delay;
       }
 

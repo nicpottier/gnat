@@ -1,5 +1,6 @@
 #pragma once
 
+#include <widget/Icons.h>
 #include <widget/Theme.h>
 #include <widget/Widget.h>
 
@@ -107,82 +108,6 @@ class FeedbackBanner : public Widget {
   }
 
  private:
-  // draws a circular arrow, a 270 degree arc with an arrowhead at the end
-  void drawRotation(TFT_eSPI& tft, int cx, int cy, int r, bool clockwise, uint32_t color) {
-    const double start = -M_PI * 0.25;
-    const double span = M_PI * 1.5;
-    const int segments = 45;
-
-    // stroke the arc a few radii thick
-    int stroke = UI_SCALE_PCT >= 150 ? 4 : 2;
-    for (int ring = -stroke; ring <= stroke; ring++) {
-      int prevX = 0;
-      int prevY = 0;
-      for (int i = 0; i <= segments; i++) {
-        double a = start + span * i / segments;
-        int x = cx + round(cos(a) * (r + ring) * (clockwise ? -1 : 1));
-        int y = cy - round(sin(a) * (r + ring));
-        if (i > 0) {
-          tft.drawLine(prevX, prevY, x, y, color);
-        }
-        prevX = x;
-        prevY = y;
-      }
-    }
-
-    // arrowhead at the end of the arc, pointing along the direction of travel
-    double a = start + span;
-    double dir = clockwise ? -1 : 1;
-    double ax = cx + cos(a) * r * dir;
-    double ay = cy - sin(a) * r;
-
-    // tangent along travel and the radial normal
-    double tx = -sin(a) * dir;
-    double ty = -cos(a);
-    double nx = cos(a) * dir;
-    double ny = -sin(a);
-
-    auto al = ::px(11);
-    auto aw = ::px(6);
-    tft.fillTriangle(round(ax + tx * al), round(ay + ty * al), round(ax + nx * aw), round(ay + ny * aw),
-                     round(ax - nx * aw), round(ay - ny * aw), color);
-  }
-
-  // draws an outlined water drop with roughly the same size and stroke weight
-  // as the rotation icon
-  void drawDrop(TFT_eSPI& tft, int cx, int cy, uint32_t color, uint32_t bg) {
-    fillDrop(tft, cx, cy - px(17), cy + px(6), px(10), color);
-    fillDrop(tft, cx, cy - px(10), cy + px(6), px(6), bg);
-  }
-
-  // a big checkmark matching the size and stroke weight of our other icons
-  void drawCheck(TFT_eSPI& tft, int cx, int cy, uint32_t color) {
-    int stroke = UI_SCALE_PCT >= 150 ? 4 : 2;
-    for (int i = -stroke; i <= stroke; i++) {
-      tft.drawLine(cx - px(14), cy + i, cx - px(5), cy + px(9) + i, color);
-      tft.drawLine(cx - px(5), cy + px(9) + i, cx + px(14), cy - px(10) + i, color);
-    }
-  }
-
-  // a checkmark button hinting how we get dismissed, check scales with radius
-  void drawDismiss(TFT_eSPI& tft, int cx, int cy, int r, uint32_t color, uint32_t bg) {
-    tft.fillCircle(cx, cy, r, color);
-    int stroke = max(3, r / 4);
-    for (int i = 0; i < stroke; i++) {
-      tft.drawLine(cx - r / 2, cy + i - r / 8, cx - r / 8, cy + r / 3 + i, bg);
-      tft.drawLine(cx - r / 8, cy + r / 3 + i, cx + r / 2, cy - r / 3 + i, bg);
-    }
-  }
-
-  // a filled teardrop, a triangle from the apex over a round bottom
-  void fillDrop(TFT_eSPI& tft, int cx, int apexY, int circleY, int r, uint32_t color) {
-    // r arrives already scaled
-    auto half = round(r * 0.72);
-    auto baseY = circleY - round(r * 0.3);
-    tft.fillTriangle(cx, apexY, cx - half, baseY, cx + half, baseY, color);
-    tft.fillCircle(cx, circleY, r, color);
-  }
-
   int m_width;
   int m_height;
 

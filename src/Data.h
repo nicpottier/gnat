@@ -15,7 +15,7 @@ enum class UpdateType : uint8_t {
   profile_cycle_update,
 };
 
-enum class ScreenID : uint8_t { unknown, brew, connect, config, feedback };
+enum class ScreenID : uint8_t { unknown, brew, connect, config, feedback, adjust };
 
 // full screen feedback we show the user, dismissed with the profile button
 enum class FeedbackType : uint8_t { none, grind_finer, grind_coarser, nailed_it, add_water };
@@ -217,6 +217,9 @@ class Context {
   bool feedbackPreview = false;
 
   ScreenID screen = ScreenID::brew;
+
+  // which adjust page is showing when on the adjust screen
+  int adjustPage = 0;
 
   Config config = Config{};
 };
