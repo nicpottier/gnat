@@ -15,7 +15,7 @@ class ShotFrame {
 };
 
 // how many samples of history we keep, bounds the drawable width
-const int shot_graph_capacity = 320;
+const int shot_graph_capacity = 480;
 
 class ShotGraph : public Widget {
  public:
@@ -61,9 +61,15 @@ class ShotGraph : public Widget {
   }
 
   void paint(TFT_eSPI &tft) override {
+#ifdef DISPLAY_RM67162
+    // we already render into a full screen framebuffer, drawing directly is
+    // flicker free and avoids nesting sprites
+    m_spriteFailed = true;
+#endif
+
     // render into a sprite so scrolling doesn't flicker, fall back to
     // drawing directly if we can't get the memory for one
-    if (!m_sprite) {
+    if (!m_sprite && !m_spriteFailed) {
       m_sprite = new TFT_eSprite(&tft);
       if (m_sprite->createSprite(m_width, m_height) == nullptr) {
         delete m_sprite;

@@ -7,20 +7,23 @@ class Screen {
   Screen(ScreenID screenID)
       : m_screen{screenID} {};
 
-  void tickAndPaint(data::Context ctx, TFT_eSPI& tft) {
+  // returns whether anything was painted
+  bool tickAndPaint(data::Context ctx, TFT_eSPI& tft) {
     // if we aren't the active screen, noop
     if (ctx.screen != m_screen) {
       m_lastScreen = ctx.screen;
-      return;
+      return false;
     }
 
     // otherwise, tick and paint all our widgets
+    bool painted = false;
     for (int i = 0; i < m_widgetCount; i++) {
       auto changed = m_widgets[i]->tick(ctx, ctx.tickID, millis());
 
       // repaint if the widget changed or we just switched screens
       if (changed || m_lastScreen != ctx.screen || !m_painted) {
         m_widgets[i]->paint(tft);
+        painted = true;
       }
     }
 
@@ -31,6 +34,8 @@ class Screen {
     if (!m_painted) {
       m_painted = true;
     }
+
+    return painted;
   }
 
   void addWidget(widget::Widget* widget) {

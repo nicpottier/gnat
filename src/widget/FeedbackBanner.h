@@ -84,13 +84,23 @@ class FeedbackBanner : public Widget {
     tft.drawString(buffer, m_width / 2, m_height / 2 + 38);
     tft.setTextDatum(TL_DATUM);
 
-    // checkmark hint by the physical dismiss button, bottom left normally,
-    // bottom right when the device is flipped
+    // checkmark hint by the physical dismiss button
+#ifdef COMBO_BUTTON_PIN
+    // single button boards can't swap roles, the button lands top right when
+    // the device is flipped
+    if (m_flipped) {
+      drawDismiss(tft, m_width - 20, 20, fg, bg);
+    } else {
+      drawDismiss(tft, 20, m_height - 20, fg, bg);
+    }
+#else
+    // two button boards swap roles so the dismiss button stays on the bottom
     if (m_flipped) {
       drawDismiss(tft, m_width - 20, m_height - 20, fg, bg);
     } else {
       drawDismiss(tft, 20, m_height - 20, fg, bg);
     }
+#endif
   }
 
  private:

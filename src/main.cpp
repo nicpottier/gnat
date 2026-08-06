@@ -11,6 +11,10 @@
 #include <TFT_eSPI.h>
 #endif
 
+#ifdef DISPLAY_RM67162
+#include <amoled/rm67162.h>
+#endif
+
 #include <AsyncTCP.h>
 #include <DNSServer.h>
 #include <Esp.h>
@@ -47,6 +51,11 @@ AsyncWebServer g_server(80);
 // the tft we draw to
 TFT_eSPI tft = TFT_eSPI();
 
+#ifdef DISPLAY_RM67162
+// AMOLED panels render into a full screen sprite that we push over QSPI
+TFT_eSprite g_frame = TFT_eSprite(&tft);
+#endif
+
 // The build version comes from an environment variable. Use the VERSION
 // define wherever the version is needed.
 #define STRINGIZER(arg) #arg
@@ -72,6 +81,26 @@ static Screen* s_feedbackScreen;
 const int BACKLIGHT_PWM_FREQ = 10000;
 const int BACKLIGHT_PWM_RESOLUTION = 8;
 const int BACKLIGHT_PWM_CHANNEL = 0;
+
+#ifndef M5_STICK
+// some backlight drivers (t-display-s3-pro) step dim on pulses, PWM turns them
+// off, those boards define BACKLIGHT_DIGITAL and get simple on / off instead
+void backlightOn() {
+#ifdef BACKLIGHT_DIGITAL
+  digitalWrite(TFT_BL, HIGH);
+#else
+  ledcWrite(BACKLIGHT_PWM_CHANNEL, BACKLIGHT_ON);
+#endif
+}
+
+void backlightOff() {
+#ifdef BACKLIGHT_DIGITAL
+  digitalWrite(TFT_BL, LOW);
+#else
+  ledcWrite(BACKLIGHT_PWM_CHANNEL, 0);
+#endif
+}
+#endif
 
 auto g_ctx = data::Context{};
 
@@ -301,6 +330,47 @@ void stopAP() {
   WiFi.softAPdisconnect(true);
 }
 
+#ifdef COMBO_BUTTON_PIN
+// single button boards: a short press cycles profiles / dismisses feedback,
+// a long press cycles screens like the menu button
+volatile unsigned long comboPressStart = 0;
+
+void IRAM_ATTR comboButtonChanged() {
+  bool pressed = digitalRead(COMBO_BUTTON_PIN) == LOW;
+  auto now = millis();
+
+  if (pressed) {
+    comboPressStart = now;
+    return;
+  }
+
+  if (comboPressStart == 0) {
+    return;
+  }
+  auto held = now - comboPressStart;
+  comboPressStart = 0;
+
+  // too short to be a real press
+  if (held < 50) {
+    return;
+  }
+
+  if (held >= 600) {
+    auto nextScreen = ScreenID::brew;
+    if (g_ctx.screen == ScreenID::brew) {
+      nextScreen = ScreenID::connect;
+    } else if (g_ctx.screen == ScreenID::connect) {
+      nextScreen = ScreenID::config;
+    }
+    auto screen = data::DataUpdate::newScreenUpdate(nextScreen);
+    xQueueSendFromISR(updateQ, &screen, NULL);
+  } else {
+    auto cycle = data::DataUpdate::newProfileCycleUpdate();
+    xQueueSendFromISR(updateQ, &cycle, NULL);
+  }
+}
+#endif
+
 #ifdef PROFILE_BUTTON_PIN
 long lastProfilePress = millis();
 
@@ -340,6 +410,16 @@ void setup() {
 
   Serial.begin(115200);
   Serial.printf("[%d] Setup - Version: %s\n", xPortGetCoreID(), VERSION);
+
+#ifdef BOARD_POWER_PIN
+  // power cycle the display rail, warm resets can leave the panel latched in
+  // a dark state that only losing power clears
+  pinMode(BOARD_POWER_PIN, OUTPUT);
+  digitalWrite(BOARD_POWER_PIN, LOW);
+  delay(200);
+  digitalWrite(BOARD_POWER_PIN, HIGH);
+  delay(100);
+#endif
 
 #ifdef DISABLE_SERIAL_TIMEOUT
   // turn off caching to the serial port.. S3 gets very slow if not connected
@@ -436,14 +516,29 @@ void setup() {
 #ifdef M5_STICK
   M5.Axp.ScreenBreath(7);
   tft = M5.Lcd;
+#elif defined(DISPLAY_RM67162)
+  rm67162_init();
+  lcd_setRotation(g_ctx.config.isFlipped() ? 1 : 3);
+  g_frame.createSprite(screenWidth, screenHeight);
+  g_frame.setSwapBytes(true);
+  g_frame.fillSprite(theme.bg_color);
 #else
   tft.init();
 
+#ifdef BACKLIGHT_DIGITAL
+  pinMode(TFT_BL, OUTPUT);
+#else
   ledcSetup(BACKLIGHT_PWM_CHANNEL, BACKLIGHT_PWM_FREQ, BACKLIGHT_PWM_RESOLUTION);
   ledcAttachPin(TFT_BL, BACKLIGHT_PWM_CHANNEL);
-  ledcWrite(BACKLIGHT_PWM_CHANNEL, BACKLIGHT_ON);
+#endif
+  backlightOn();
 #endif
 
+#ifdef COMBO_BUTTON_PIN
+  // single button, short press for profiles, long press for menu
+  pinMode(COMBO_BUTTON_PIN, INPUT_PULLUP);
+  attachInterrupt(COMBO_BUTTON_PIN, comboButtonChanged, CHANGE);
+#else
   // when flipped the physical positions of our buttons swap, keep the lower
   // button as the profile / dismiss button and the upper one as menu
   auto menuPin = MENU_BUTTON_PIN;
@@ -459,10 +554,13 @@ void setup() {
 
   pinMode(menuPin, INPUT_PULLUP);
   attachInterrupt(menuPin, menuButtonPressed, FALLING);
+#endif
 
+#ifndef DISPLAY_RM67162
   tft.setRotation(g_ctx.config.isFlipped() ? 1 : 3);
   tft.setSwapBytes(true);
   tft.fillScreen(theme.bg_color);
+#endif
 }
 
 unsigned long lastTick = 0;
@@ -512,10 +610,22 @@ void loop() {
     // ready for our next tick?
     if (millis() > nextTick) {
       // paint all our screens
-      s_brewScreen->tickAndPaint(g_ctx, tft);
-      s_connectScreen->tickAndPaint(g_ctx, tft);
-      s_configScreen->tickAndPaint(g_ctx, tft);
-      s_feedbackScreen->tickAndPaint(g_ctx, tft);
+#ifdef DISPLAY_RM67162
+      TFT_eSPI& gfx = g_frame;
+#else
+      TFT_eSPI& gfx = tft;
+#endif
+      bool painted = s_brewScreen->tickAndPaint(g_ctx, gfx);
+      painted |= s_connectScreen->tickAndPaint(g_ctx, gfx);
+      painted |= s_configScreen->tickAndPaint(g_ctx, gfx);
+      painted |= s_feedbackScreen->tickAndPaint(g_ctx, gfx);
+
+#ifdef DISPLAY_RM67162
+      // push our frame to the panel when anything changed
+      if (painted) {
+        lcd_PushColors(0, 0, screenWidth, screenHeight, (uint16_t*)g_frame.getPointer());
+      }
+#endif
 
       // we just went to sleep, turn off the screen
       if (g_ctx.machineState == MachineState::sleep && lastState != g_ctx.machineState) {
