@@ -812,8 +812,11 @@ void loop() {
           g_touchStartY = uy;
 
           // the circle is a home button, from any other screen it returns to
-          // brew, from the brew screen it opens the menu screens
+          // brew (dismissing any feedback), from the brew screen it opens the
+          // menu screens
           if (circle) {
+            g_ctx.feedback = FeedbackType::none;
+            g_ctx.feedbackPreview = false;
             auto nextScreen = ScreenID::brew;
             if (g_ctx.screen == ScreenID::brew) {
               nextScreen = ScreenID::connect;
@@ -862,15 +865,6 @@ void loop() {
             // tapping the brew screen cycles the profile
             auto cycle = data::DataUpdate::newProfileCycleUpdate();
             xQueueSend(updateQ, &cycle, 10);
-          } else if (g_ctx.screen == ScreenID::feedback) {
-            // tapping the dismiss button clears the banner
-            auto cx = screenWidth - px(DISMISS_BTN_MARGIN);
-            auto cy = screenHeight - px(DISMISS_BTN_MARGIN);
-            auto r = px(DISMISS_BTN_R) * 2;
-            if (abs(g_touchStartX - cx) <= r && abs(g_touchStartY - cy) <= r) {
-              auto cycle = data::DataUpdate::newProfileCycleUpdate();
-              xQueueSend(updateQ, &cycle, 10);
-            }
           } else if (g_ctx.screen == ScreenID::adjust && g_ctx.adjustPage < widget::adjust_page_count) {
             // tapping a +/- button steps its value
             auto& page = widget::adjust_pages[g_ctx.adjustPage];

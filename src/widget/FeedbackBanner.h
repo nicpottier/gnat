@@ -87,8 +87,7 @@ class FeedbackBanner : public Widget {
 
     // checkmark hint by the physical dismiss button
 #if defined(TOUCH_CST816)
-    // touch panels get a big tappable button in the bottom right
-    drawDismiss(tft, m_width - px(DISMISS_BTN_MARGIN), m_height - px(DISMISS_BTN_MARGIN), px(DISMISS_BTN_R), fg, bg);
+    // touch panels dismiss with the home button, no hint needed
 #elif defined(COMBO_BUTTON_PIN)
     // single button boards can't swap roles, the button lands top right when
     // the device is flipped

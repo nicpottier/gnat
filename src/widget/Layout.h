@@ -23,8 +23,3 @@ inline int px(int v) {
 #define FONT_SUB &FreeSansBold12pt7b
 #define FONT_TITLE &FreeSansBold18pt7b
 #endif
-
-// touch dismiss button placement (from the bottom right corner) and size,
-// shared between the banner painting and the touch hit test
-#define DISMISS_BTN_MARGIN 30
-#define DISMISS_BTN_R 20
