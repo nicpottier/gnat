@@ -1,4 +1,6 @@
 #include <Arduino.h>
+#include <profiles.h>
+
 #include <Command.h>
 #include <Config.h>
 #include <Data.h>
@@ -23,10 +25,13 @@
 #include <widget/ConfigBackground.h>
 #include <widget/ConfigFields.h>
 #include <widget/ConnectInstructions.h>
+#include <widget/FeedbackBanner.h>
 #include <widget/MachineStatus.h>
+#include <widget/ProfileName.h>
 #include <widget/ScaleStatus.h>
 #include <widget/ShotGraph.h>
 #include <widget/ShotTimer.h>
+#include <widget/WaterLevel.h>
 
 #include "ESPAsyncWebServer.h"
 
@@ -62,6 +67,7 @@ static QueueHandle_t cmdQ;
 static Screen* s_brewScreen;
 static Screen* s_connectScreen;
 static Screen* s_configScreen;
+static Screen* s_feedbackScreen;
 
 const int BACKLIGHT_PWM_FREQ = 10000;
 const int BACKLIGHT_PWM_RESOLUTION = 8;
@@ -214,9 +220,18 @@ class CaptiveRequestHandler : public AsyncWebHandler {
       request->send(response);
     }
 
+    else if (strstr(url, "/profiles.json") == url) {
+      auto response = request->beginResponse_P(200, "application/json", profiles_json);
+      response->addHeader("Cache-Control", "no-store");
+      request->send(response);
+    }
+
     else if (strstr(url, "/config") == url) {
       if (request->method() == HTTP_POST) {
         auto newConfig = Config::fromRequest(request);
+
+        // the web form doesn't manage the profile, carry ours over
+        newConfig.setProfile(g_ctx.config.getProfile());
 
         // no errors? save our new config
         if (newConfig.getError() == ConfigError::none) {
@@ -233,6 +248,7 @@ class CaptiveRequestHandler : public AsyncWebHandler {
       } else {
         auto response = request->beginResponse_P(200, "text/html", config_html, config_html_len);
         response->addHeader("Content-Encoding", "gzip");
+        response->addHeader("Cache-Control", "no-store");
         request->send(response);
       }
     }
@@ -243,7 +259,14 @@ class CaptiveRequestHandler : public AsyncWebHandler {
   }
 };
 
+bool g_apRunning = false;
+
 void startAP() {
+  if (g_apRunning) {
+    return;
+  }
+  g_apRunning = true;
+
   // bring up our GNAT AP
   WiFi.softAP("GNAT");
 
@@ -260,6 +283,11 @@ void startAP() {
 }
 
 void stopAP() {
+  if (!g_apRunning) {
+    return;
+  }
+  g_apRunning = false;
+
   // stop handling
   g_server.end();
 
@@ -273,12 +301,27 @@ void stopAP() {
   WiFi.softAPdisconnect(true);
 }
 
+#ifdef PROFILE_BUTTON_PIN
+long lastProfilePress = millis();
+
+void IRAM_ATTR profileButtonPressed() {
+  // ignore bounces, but only restart the window on accepted presses so
+  // fast repeated presses still register
+  if (millis() - lastProfilePress > 250) {
+    lastProfilePress = millis();
+    auto cycle = data::DataUpdate::newProfileCycleUpdate();
+    xQueueSendFromISR(updateQ, &cycle, NULL);
+  }
+}
+#endif
+
 long lastMenuPress = millis();
 
 void IRAM_ATTR menuButtonPressed() {
-  // debounce
-  // TODO: read current state instead and only react on button up?
-  if (millis() - lastMenuPress > 500) {
+  // ignore bounces, but only restart the window on accepted presses so
+  // fast repeated presses still register
+  if (millis() - lastMenuPress > 250) {
+    lastMenuPress = millis();
     auto nextScreen = ScreenID::brew;
     if (g_ctx.screen == ScreenID::brew) {
       nextScreen = ScreenID::connect;
@@ -286,11 +329,8 @@ void IRAM_ATTR menuButtonPressed() {
       nextScreen = ScreenID::config;
     }
     auto screen = data::DataUpdate::newScreenUpdate(nextScreen);
-    if (xQueueSend(updateQ, &screen, 10) != pdTRUE) {
-      Serial.println("error queuing screen update");
-    }
+    xQueueSendFromISR(updateQ, &screen, NULL);
   }
-  lastMenuPress = millis();
 }
 
 void setup() {
@@ -317,19 +357,28 @@ void setup() {
   de1 = new ble::DE1{updateQ, cmdQ};
   devices[1] = de1;
 
+  // safe to set directly, our ble task hasn't started yet
+  de1->setRefillLevel(g_ctx.config.getRefillLevel());
+  de1->setProfile(g_ctx.config.getProfile() - 1);
+
   s_brewScreen = new Screen{ScreenID::brew};
   s_brewScreen->addWidget(new widget::BrewBackground{screenWidth, screenHeight});
   s_brewScreen->addWidget(new widget::ScaleStatus{5, 7, 80});
   s_brewScreen->addWidget(new widget::MachineStatus{screenWidth / 3 + 5, 7, 80});
   s_brewScreen->addWidget(new widget::ShotTimer{(screenWidth / 3) * 2 + 5, 7, 80});
-  s_brewScreen->addWidget(new widget::ShotGraph{5, 40, screenWidth - 10, screenHeight - 40});
+  s_brewScreen->addWidget(new widget::ShotGraph{5, 40, screenWidth - 30, screenHeight - 57});
+  s_brewScreen->addWidget(new widget::WaterLevel{screenWidth - 18, 42, 10, screenHeight - 49});
+  s_brewScreen->addWidget(new widget::ProfileName{8, screenHeight - 14, screenWidth - 34});
 
   s_connectScreen = new Screen{ScreenID::connect};
   s_connectScreen->addWidget(new widget::ConnectInstructions{screenWidth, screenHeight});
 
   s_configScreen = new Screen{ScreenID::config};
   s_configScreen->addWidget(new widget::ConfigBackground{screenWidth, screenHeight});
-  s_configScreen->addWidget(new widget::ConfigFields{10, 50, screenWidth - 20, screenHeight - 40});
+  s_configScreen->addWidget(new widget::ConfigFields{18, 46, screenWidth - 36, screenHeight - 46});
+
+  s_feedbackScreen = new Screen{ScreenID::feedback};
+  s_feedbackScreen->addWidget(new widget::FeedbackBanner{screenWidth, screenHeight});
 
   /** *Optional* Sets the filtering mode used by the scanner in the BLE
    * controller.
@@ -394,10 +443,23 @@ void setup() {
   ledcWrite(BACKLIGHT_PWM_CHANNEL, BACKLIGHT_ON);
 #endif
 
-  pinMode(MENU_BUTTON_PIN, INPUT_PULLUP);
-  attachInterrupt(MENU_BUTTON_PIN, menuButtonPressed, FALLING);
+  // when flipped the physical positions of our buttons swap, keep the lower
+  // button as the profile / dismiss button and the upper one as menu
+  auto menuPin = MENU_BUTTON_PIN;
+#ifdef PROFILE_BUTTON_PIN
+  auto profilePin = PROFILE_BUTTON_PIN;
+  if (g_ctx.config.isFlipped()) {
+    menuPin = PROFILE_BUTTON_PIN;
+    profilePin = MENU_BUTTON_PIN;
+  }
+  pinMode(profilePin, INPUT_PULLUP);
+  attachInterrupt(profilePin, profileButtonPressed, FALLING);
+#endif
 
-  tft.setRotation(3);
+  pinMode(menuPin, INPUT_PULLUP);
+  attachInterrupt(menuPin, menuButtonPressed, FALLING);
+
+  tft.setRotation(g_ctx.config.isFlipped() ? 1 : 3);
   tft.setSwapBytes(true);
   tft.fillScreen(theme.bg_color);
 }
@@ -418,6 +480,12 @@ const unsigned long SLEEP_TIMEOUT = 1000 * 60 * 15;
 // how many ticks before we try a command again, default 2 seconds
 const unsigned long CMD_TIMEOUT = 2000 / TICK_TARGET;
 
+// how long a profile selection needs to settle before we persist and upload it
+const unsigned long PROFILE_SETTLE_TICKS = 3000 / TICK_TARGET;
+
+// our target shot time, the configurable margin decides when we call it out
+const double TARGET_SHOT_SECONDS = 30;
+
 void loop() {
   // container for the commands we pop off our queue
   auto d = data::DataUpdate{UpdateType::null_update};
@@ -427,6 +495,13 @@ void loop() {
   auto lastScreen = ScreenID::unknown;
   auto lastState = MachineState::unknown;
   auto lastSubstate = MachineSubstate::unknown;
+  auto lastConfigVersion = g_ctx.config.getVersion();
+  auto lastProfile = g_ctx.config.getProfile();
+  unsigned long profileChangedTick = 0;
+  unsigned long pourStart = 0;
+  auto lastFeedback = FeedbackType::none;
+  bool waterWarnDismissed = false;
+  auto lastFlipped = g_ctx.config.isFlipped();
 
   while (true) {
     while (xQueueReceive(updateQ, (void*)&d, 0) == pdTRUE) {
@@ -439,6 +514,7 @@ void loop() {
       s_brewScreen->tickAndPaint(g_ctx, tft);
       s_connectScreen->tickAndPaint(g_ctx, tft);
       s_configScreen->tickAndPaint(g_ctx, tft);
+      s_feedbackScreen->tickAndPaint(g_ctx, tft);
 
       // we just went to sleep, turn off the screen
       if (g_ctx.machineState == MachineState::sleep && lastState != g_ctx.machineState) {
@@ -473,6 +549,64 @@ void loop() {
         // send a wake command to our BLE devices
         auto wake = cmd::CommandRequest::newWakeCommand();
         xQueueSend(cmdQ, &wake, 10);
+      }
+
+      // starting a new shot clears any lingering feedback
+      if (g_ctx.machineState == MachineState::espresso && lastState != MachineState::espresso) {
+        g_ctx.feedback = FeedbackType::none;
+        g_ctx.feedbackPreview = false;
+        if (g_ctx.screen == ScreenID::feedback) {
+          g_ctx.screen = ScreenID::brew;
+        }
+      }
+
+      // track how long we pour so we can give grind feedback after the shot
+      if (g_ctx.machineState == MachineState::espresso && g_ctx.machineSubstate == MachineSubstate::pouring &&
+          lastSubstate != MachineSubstate::pouring) {
+        pourStart = millis();
+      }
+
+      if (lastSubstate == MachineSubstate::pouring && g_ctx.machineSubstate != MachineSubstate::pouring &&
+          pourStart > 0) {
+        auto seconds = (millis() - pourStart) / (double)1000;
+        g_ctx.feedbackSeconds = seconds;
+        auto margin = (double)g_ctx.config.getShotMargin();
+        if (fabs(seconds - TARGET_SHOT_SECONDS) <= 0.5) {
+          g_ctx.feedback = FeedbackType::nailed_it;
+        } else if (seconds <= TARGET_SHOT_SECONDS - margin) {
+          g_ctx.feedback = FeedbackType::grind_finer;
+        } else if (seconds >= TARGET_SHOT_SECONDS + margin) {
+          g_ctx.feedback = FeedbackType::grind_coarser;
+        } else {
+          g_ctx.feedback = FeedbackType::none;
+        }
+
+        // take over the screen with our banner when we have feedback
+        if (g_ctx.feedback != FeedbackType::none && g_ctx.screen == ScreenID::brew) {
+          g_ctx.screen = ScreenID::feedback;
+        }
+        pourStart = 0;
+      }
+
+      // note when the add water banner is dismissed while still low so we don't
+      // immediately show it again
+      if (lastFeedback == FeedbackType::add_water && g_ctx.feedback == FeedbackType::none &&
+          g_ctx.waterLevel <= g_ctx.config.getWarnLevel()) {
+        waterWarnDismissed = true;
+      }
+      lastFeedback = g_ctx.feedback;
+
+      // moving water re-arms the warning, as does refilling above the level
+      if (machineMovingWater(g_ctx.machineState) || g_ctx.waterLevel > g_ctx.config.getWarnLevel()) {
+        waterWarnDismissed = false;
+      }
+
+      // suggest adding water when we are at rest in the warning zone
+      if (g_ctx.machineState == MachineState::idle && g_ctx.waterLevel > 0 &&
+          g_ctx.waterLevel <= g_ctx.config.getWarnLevel() && !waterWarnDismissed &&
+          g_ctx.feedback == FeedbackType::none && g_ctx.screen == ScreenID::brew) {
+        g_ctx.feedback = FeedbackType::add_water;
+        g_ctx.screen = ScreenID::feedback;
       }
 
       // if we just switched into brewing espresso, tare our scale
@@ -510,15 +644,46 @@ void loop() {
         }
       }
 
+      // if our config changed, pass along our new refill level
+      if (g_ctx.config.getVersion() != lastConfigVersion) {
+        lastConfigVersion = g_ctx.config.getVersion();
+        auto refill = cmd::CommandRequest::newRefillLevelCommand(g_ctx.config.getRefillLevel());
+        xQueueSend(cmdQ, &refill, 10);
+      }
+
+      // if our selected profile changed, start (or restart) our settle timer, this
+      // lets the user cycle through profiles without each one hitting the machine
+      if (g_ctx.config.getProfile() != lastProfile) {
+        lastProfile = g_ctx.config.getProfile();
+        profileChangedTick = g_ctx.tickID;
+      }
+
+      // once the selection has settled, persist it and upload it to the machine
+      if (profileChangedTick > 0 && g_ctx.tickID - profileChangedTick > PROFILE_SETTLE_TICKS &&
+          g_ctx.machineState != MachineState::espresso && g_ctx.machineState != MachineState::steam &&
+          g_ctx.machineState != MachineState::hot_water) {
+        writeConfig(g_ctx.config);
+        auto profile = cmd::CommandRequest::newProfileCommand(g_ctx.config.getProfile() - 1);
+        xQueueSend(cmdQ, &profile, 10);
+        profileChangedTick = 0;
+      }
+
+      // orientation changes need a restart to take effect
+      if (g_ctx.config.isFlipped() != lastFlipped) {
+        lastFlipped = g_ctx.config.isFlipped();
+        g_ctx.restartTickID = g_ctx.tickID + restart_tick_delay;
+      }
+
       // if it's time to reboot, do so
       if (g_ctx.restartTickID > 0 && g_ctx.tickID > g_ctx.restartTickID) {
         ESP.restart();
       }
 
-      // handle our AP state based on what screen we are on
-      if (lastScreen == ScreenID::brew && (g_ctx.screen == ScreenID::connect || g_ctx.screen == ScreenID::config)) {
+      // handle our AP state based on what screen we are on, start and stop
+      // are safe to call regardless of current AP state
+      if (g_ctx.screen == ScreenID::connect || g_ctx.screen == ScreenID::config) {
         startAP();
-      } else if (g_ctx.screen == ScreenID::brew && lastScreen != ScreenID::unknown && lastScreen != ScreenID::brew) {
+      } else if (g_ctx.screen == ScreenID::brew) {
         stopAP();
       }
 

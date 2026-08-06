@@ -12,9 +12,13 @@ enum class UpdateType : uint8_t {
   water_level_update,
   screen_update,
   config_update,
+  profile_cycle_update,
 };
 
-enum class ScreenID : uint8_t { unknown, brew, connect, config };
+enum class ScreenID : uint8_t { unknown, brew, connect, config, feedback };
+
+// full screen feedback we show the user, dismissed with the profile button
+enum class FeedbackType : uint8_t { none, grind_finer, grind_coarser, nailed_it, add_water };
 
 enum class DeviceType : uint8_t { unknown, machine, scale, last };
 
@@ -81,6 +85,23 @@ const char* STATES[] = {
     "air_purge",        // 14 Air purge.
     "sched_idle",       // 15 Scheduled wake up idle state
 };
+
+// whether the machine is actively moving water around in this state
+inline bool machineMovingWater(MachineState state) {
+  switch (state) {
+    case MachineState::espresso:
+    case MachineState::steam:
+    case MachineState::hot_water:
+    case MachineState::hot_water_rinse:
+    case MachineState::steam_rinse:
+    case MachineState::descale:
+    case MachineState::clean:
+    case MachineState::air_purge:
+      return true;
+    default:
+      return false;
+  }
+}
 
 enum class MachineSubstate {
   ready = 0,
@@ -189,6 +210,12 @@ class Context {
   int waterLevel = 0;
   int waterLevelThreshold = 0;
 
+  FeedbackType feedback = FeedbackType::none;
+  double feedbackSeconds = 0;
+
+  // when set we are previewing banners with sample data
+  bool feedbackPreview = false;
+
   ScreenID screen = ScreenID::brew;
 
   Config config = Config{};
@@ -206,6 +233,58 @@ class ConfigUpdate {
 
  private:
   Config m_config;
+};
+
+class ProfileCycleUpdate {
+ public:
+  ProfileCycleUpdate() {}
+
+  bool apply(Context* ctx) {
+    // on the config screen the button previews our banners with sample data
+    if (ctx->screen == ScreenID::config) {
+      ctx->feedbackPreview = true;
+      ctx->feedback = FeedbackType::grind_finer;
+      ctx->feedbackSeconds = 22.5;
+      ctx->screen = ScreenID::feedback;
+      return true;
+    }
+
+    // if we left the preview some other way (menu button), reset it
+    if (ctx->feedbackPreview && ctx->screen != ScreenID::feedback) {
+      ctx->feedbackPreview = false;
+      ctx->feedback = FeedbackType::none;
+    }
+
+    // while previewing, cycle through the banners then return to config
+    if (ctx->feedbackPreview) {
+      if (ctx->feedback == FeedbackType::grind_finer) {
+        ctx->feedback = FeedbackType::grind_coarser;
+        ctx->feedbackSeconds = 38.2;
+      } else if (ctx->feedback == FeedbackType::grind_coarser) {
+        ctx->feedback = FeedbackType::nailed_it;
+        ctx->feedbackSeconds = 29.8;
+      } else if (ctx->feedback == FeedbackType::nailed_it) {
+        ctx->feedback = FeedbackType::add_water;
+      } else {
+        ctx->feedbackPreview = false;
+        ctx->feedback = FeedbackType::none;
+        ctx->screen = ScreenID::config;
+      }
+      return true;
+    }
+
+    // when we are showing feedback, the button dismisses it instead
+    if (ctx->feedback != FeedbackType::none) {
+      ctx->feedback = FeedbackType::none;
+      if (ctx->screen == ScreenID::feedback) {
+        ctx->screen = ScreenID::brew;
+      }
+      return true;
+    }
+
+    ctx->config.setProfile(ctx->config.nextEnabledProfile());
+    return true;
+  }
 };
 
 class ScreenUpdate {
@@ -339,6 +418,8 @@ class DataUpdate {
         return m_screenUpdate.apply(ctx);
       case UpdateType::config_update:
         return m_configUpdate.apply(ctx);
+      case UpdateType::profile_cycle_update:
+        return m_profileCycleUpdate.apply(ctx);
       default:
         return false;
     }
@@ -392,6 +473,12 @@ class DataUpdate {
     return u;
   }
 
+  static DataUpdate newProfileCycleUpdate() {
+    auto u = DataUpdate{UpdateType::profile_cycle_update};
+    u.m_profileCycleUpdate = ProfileCycleUpdate{};
+    return u;
+  }
+
  private:
   UpdateType m_type;
 
@@ -404,6 +491,7 @@ class DataUpdate {
     WaterLevelUpdate m_waterLevelUpdate;
     ScreenUpdate m_screenUpdate;
     ConfigUpdate m_configUpdate;
+    ProfileCycleUpdate m_profileCycleUpdate;
   };
 };
 

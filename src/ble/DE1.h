@@ -2,6 +2,7 @@
 
 #include <Data.h>
 #include <ble/Device.h>
+#include <profiles.h>
 
 namespace ble {
 
@@ -10,9 +11,16 @@ const auto de1_requested_state_uuid = "0xa002";
 const auto de1_state_uuid = "0xa00e";
 const auto de1_water_uuid = "0xa011";
 const auto de1_sample_uuid = "0xa00d";
+const auto de1_header_uuid = "0xa00f";
+const auto de1_frame_uuid = "0xa010";
 
 const uint8_t de1_sleep_cmd = 0x00;
 const uint8_t de1_stop_cmd = 0x02;
+
+// water level (in mm) at which the machine should ask for a refill, used until the
+// configured value is set, without this write the machine falls back to a higher
+// stored threshold and asks for water sooner than it needs to
+const uint8_t de1_default_refill_level_mm = 3;
 
 class DE1 : public Device, public Machine {
  public:
@@ -55,6 +63,32 @@ class DE1 : public Device, public Machine {
     return true;
   }
 
+  bool setRefillLevel(int mm) {
+    if (mm < 1 || mm > 255) {
+      return false;
+    }
+    m_refillLevelMm = mm;
+
+    // if we are connected, update the machine immediately
+    if (m_waterChar) {
+      return writeRefillLevel();
+    }
+    return true;
+  }
+
+  bool setProfile(int idx) {
+    if (idx < 0 || idx >= profile_count) {
+      return false;
+    }
+    m_profileIdx = idx;
+
+    // if we are connected, upload the profile immediately
+    if (m_headerChar && m_frameChar) {
+      return uploadProfile();
+    }
+    return true;
+  }
+
   void stateUpdate(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* d, size_t length, bool isNotify) {
     int state = d[0];
     int subState = d[1];
@@ -90,8 +124,12 @@ class DE1 : public Device, public Machine {
   }
 
   void waterUpdate(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* d, size_t length, bool isNotify) {
-    ushort level = d[1] | (d[2] << 8);
-    ushort threshold = d[3] | (d[4] << 8);
+    if (length < 4) {
+      return;
+    }
+    // two big-endian U16P8 fixed point values in mm: current level, then refill threshold
+    int level = ((d[0] << 8) | d[1]) / 256;
+    int threshold = ((d[2] << 8) | d[3]) / 256;
     queueUpdate(data::DataUpdate::newWaterLevelUpdate(level, threshold));
   }
 
@@ -121,6 +159,14 @@ class DE1 : public Device, public Machine {
 
         if (ch->getUUID().toString() == de1_requested_state_uuid) {
           m_cmdChar = ch;
+        }
+
+        if (ch->getUUID().toString() == de1_header_uuid) {
+          m_headerChar = ch;
+        }
+
+        if (ch->getUUID().toString() == de1_frame_uuid) {
+          m_frameChar = ch;
         }
 
         if (ch->canNotify()) {
@@ -154,16 +200,41 @@ class DE1 : public Device, public Machine {
             ch->subscribe(true, std::bind(&DE1::waterUpdate, this, std::placeholders::_1, std::placeholders::_2,
                                           std::placeholders::_3, std::placeholders::_4));
             Serial.print(" WATER");
+
+            // write our refill threshold
+            m_waterChar = ch;
+            if (writeRefillLevel()) {
+              Serial.print(" REFILL SET");
+            }
+
+            // read the current level so we don't have to wait for the first notification
+            auto value = ch->readValue();
+            if (value.length() >= 4) {
+              waterUpdate(ch, (uint8_t*)value.data(), value.length(), false);
+            }
           }
         }
         Serial.println("");
       }
     }
 
+    // load our selected profile onto the machine
+    if (m_headerChar && m_frameChar) {
+      if (uploadProfile()) {
+        Serial.printf("[%s] uploaded profile: %s\n", getName().c_str(), profiles[m_profileIdx].name);
+      } else {
+        Serial.printf("[%s] failed uploading profile\n", getName().c_str());
+      }
+    }
+
     return true;
   }
 
-  void teardownConnection(NimBLEClient* c) {}
+  void teardownConnection(NimBLEClient* c) {
+    m_waterChar = nullptr;
+    m_headerChar = nullptr;
+    m_frameChar = nullptr;
+  }
 
   void selfRegister(Devices* devices) {
     devices->setMachine(this);
@@ -178,8 +249,36 @@ class DE1 : public Device, public Machine {
   }
 
  private:
+  bool writeRefillLevel() {
+    // write is {level, threshold} as big-endian U16P8 values, level is ignored on write
+    uint8_t levels[] = {0, 0, m_refillLevelMm, 0};
+    return m_waterChar->writeValue(levels, sizeof(levels), true);
+  }
+
+  bool uploadProfile() {
+    auto profile = profiles[m_profileIdx];
+
+    if (!m_headerChar->writeValue(profile.header, 5, true)) {
+      return false;
+    }
+
+    for (int i = 0; i < profile.frameCount; i++) {
+      if (!m_frameChar->writeValue(profile.frames[i], 8, true)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   NimBLERemoteCharacteristic* m_cmdChar = nullptr;
   NimBLERemoteCharacteristic* m_stateChar = nullptr;
+  NimBLERemoteCharacteristic* m_waterChar = nullptr;
+  NimBLERemoteCharacteristic* m_headerChar = nullptr;
+  NimBLERemoteCharacteristic* m_frameChar = nullptr;
+
+  uint8_t m_refillLevelMm = de1_default_refill_level_mm;
+  int m_profileIdx = 0;
 };
 
 }  // namespace ble
