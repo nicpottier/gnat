@@ -40,16 +40,16 @@ class ShotTimer : public Widget {
   }
 
   void paint(TFT_eSPI& tft) {
-    tft.fillRect(m_x, m_y, m_width, 22, theme.dash_bg_color);
+    tft.fillRect(m_x, m_y, m_width, px(22), theme.dash_bg_color);
 
     // if we have a shot time, show that
     if (m_shotTime > 0) {
       auto elapsed = m_shotTime / (double)1000;
       char buffer[10];
       snprintf(buffer, 10, "%0.1fs", elapsed);
-      tft.setFreeFont(&FreeSans9pt7b);
+      tft.setFreeFont(FONT_BODY_SM);
       tft.setTextColor(theme.text_color, theme.dash_bg_color);
-      tft.drawString(buffer, m_x + 10, m_y + 4);
+      tft.drawString(buffer, m_x + px(10), m_y + px(4));
     }
 
     // otherwise, if we are brewing and have a start, show elapsed
@@ -57,9 +57,9 @@ class ShotTimer : public Widget {
       auto elapsed = (millis() - m_shotStart) / (double)1000;
       char buffer[10];
       snprintf(buffer, 10, "%0.1fs", elapsed);
-      tft.setFreeFont(&FreeSans9pt7b);
+      tft.setFreeFont(FONT_BODY_SM);
       tft.setTextColor(theme.text_color, theme.dash_bg_color);
-      tft.drawString(buffer, m_x + 10, m_y + 4);
+      tft.drawString(buffer, m_x + px(10), m_y + px(4));
     }
   }
 

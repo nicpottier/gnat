@@ -15,6 +15,12 @@
 #include <amoled/rm67162.h>
 #endif
 
+#ifdef TOUCH_CST816
+#include <touch/CST816.h>
+CST816 g_touch;
+bool g_touchWasDown = false;
+#endif
+
 #include <AsyncTCP.h>
 #include <DNSServer.h>
 #include <Esp.h>
@@ -444,19 +450,19 @@ void setup() {
 
   s_brewScreen = new Screen{ScreenID::brew};
   s_brewScreen->addWidget(new widget::BrewBackground{screenWidth, screenHeight});
-  s_brewScreen->addWidget(new widget::ScaleStatus{5, 7, 80});
-  s_brewScreen->addWidget(new widget::MachineStatus{screenWidth / 3 + 5, 7, 80});
-  s_brewScreen->addWidget(new widget::ShotTimer{(screenWidth / 3) * 2 + 5, 7, 80});
-  s_brewScreen->addWidget(new widget::ShotGraph{5, 40, screenWidth - 30, screenHeight - 57});
-  s_brewScreen->addWidget(new widget::WaterLevel{screenWidth - 18, 42, 10, screenHeight - 49});
-  s_brewScreen->addWidget(new widget::ProfileName{8, screenHeight - 14, screenWidth - 34});
+  s_brewScreen->addWidget(new widget::ScaleStatus{px(5), px(7), px(80)});
+  s_brewScreen->addWidget(new widget::MachineStatus{screenWidth / 3 + px(5), px(7), px(80)});
+  s_brewScreen->addWidget(new widget::ShotTimer{(screenWidth / 3) * 2 + px(5), px(7), px(80)});
+  s_brewScreen->addWidget(new widget::ShotGraph{px(5), px(40), screenWidth - px(30), screenHeight - px(57)});
+  s_brewScreen->addWidget(new widget::WaterLevel{screenWidth - px(18), px(42), px(10), screenHeight - px(49)});
+  s_brewScreen->addWidget(new widget::ProfileName{px(8), screenHeight - px(14), screenWidth - px(34)});
 
   s_connectScreen = new Screen{ScreenID::connect};
   s_connectScreen->addWidget(new widget::ConnectInstructions{screenWidth, screenHeight});
 
   s_configScreen = new Screen{ScreenID::config};
   s_configScreen->addWidget(new widget::ConfigBackground{screenWidth, screenHeight});
-  s_configScreen->addWidget(new widget::ConfigFields{18, 46, screenWidth - 36, screenHeight - 46});
+  s_configScreen->addWidget(new widget::ConfigFields{px(18), px(46), screenWidth - px(36), screenHeight - px(46)});
 
   s_feedbackScreen = new Screen{ScreenID::feedback};
   s_feedbackScreen->addWidget(new widget::FeedbackBanner{screenWidth, screenHeight});
@@ -522,6 +528,14 @@ void setup() {
   g_frame.createSprite(screenWidth, screenHeight);
   g_frame.setSwapBytes(true);
   g_frame.fillSprite(theme.bg_color);
+
+#ifdef TOUCH_CST816
+  if (g_touch.begin(TOUCH_SDA_PIN, TOUCH_SCL_PIN)) {
+    Serial.println("[TOUCH] controller found");
+  } else {
+    Serial.println("[TOUCH] controller NOT found");
+  }
+#endif
 #else
   tft.init();
 
@@ -763,6 +777,47 @@ void loop() {
           lastSleep = g_ctx.tickID;
         }
       }
+
+#ifdef TOUCH_CST816
+      // poll for taps, act on the initial press
+      int touchX, touchY;
+      bool touchDown = g_touch.read(touchX, touchY);
+      if (touchDown && !g_touchWasDown) {
+        // the round capacitive button reports out past the panel
+        bool circle = touchX >= 560;
+
+        // map the controller's coordinates into our ui space
+        int ux = screenWidth - 1 - touchX;
+        int uy = screenHeight - 1 - touchY;
+        if (g_ctx.config.isFlipped()) {
+          ux = screenWidth - 1 - ux;
+          uy = screenHeight - 1 - uy;
+        }
+        Serial.printf("[TOUCH] raw %d,%d ui %d,%d circle %d\n", touchX, touchY, ux, uy, circle);
+
+        if (circle) {
+          // the circle button acts as our menu button
+          auto nextScreen = ScreenID::brew;
+          if (g_ctx.screen == ScreenID::brew) {
+            nextScreen = ScreenID::connect;
+          } else if (g_ctx.screen == ScreenID::connect) {
+            nextScreen = ScreenID::config;
+          }
+          auto screen = data::DataUpdate::newScreenUpdate(nextScreen);
+          xQueueSend(updateQ, &screen, 10);
+        } else if (g_ctx.screen == ScreenID::feedback) {
+          // tapping the dismiss button clears the banner
+          auto cx = screenWidth - px(DISMISS_BTN_MARGIN);
+          auto cy = screenHeight - px(DISMISS_BTN_MARGIN);
+          auto r = px(DISMISS_BTN_R) * 2;
+          if (abs(ux - cx) <= r && abs(uy - cy) <= r) {
+            auto cycle = data::DataUpdate::newProfileCycleUpdate();
+            xQueueSend(updateQ, &cycle, 10);
+          }
+        }
+      }
+      g_touchWasDown = touchDown;
+#endif
 
       // if our config changed, pass along our new refill level and flush time
       if (g_ctx.config.getVersion() != lastConfigVersion) {

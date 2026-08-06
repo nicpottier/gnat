@@ -37,20 +37,20 @@ class ScaleStatus : public Widget {
   }
 
   void paint(TFT_eSPI &tft) {
-    tft.drawCircle(m_x + 10, m_y + 10, 8, theme.dash_border_color);
+    tft.drawCircle(m_x + px(10), m_y + px(10), px(8), theme.dash_border_color);
     if (m_lastState == BLEState::connected) {
-      tft.fillCircle(m_x + 10, m_y + 10, 7, theme.ble_color);
+      tft.fillCircle(m_x + px(10), m_y + px(10), px(7), theme.ble_color);
     } else {
       auto color = (m_lastState == BLEState::connecting) ? theme.ble_color : theme.error_color;
       if (m_flash) {
-        tft.fillCircle(m_x + 10, m_y + 10, 7, color);
+        tft.fillCircle(m_x + px(10), m_y + px(10), px(7), color);
       } else {
-        tft.fillCircle(m_x + 10, m_y + 10, 7, theme.dash_bg_color);
+        tft.fillCircle(m_x + px(10), m_y + px(10), px(7), theme.dash_bg_color);
       }
     }
 
     // draw our weight if connected
-    tft.fillRect(m_x + 22, m_y, m_width - 22, 22, theme.dash_bg_color);
+    tft.fillRect(m_x + px(22), m_y, m_width - px(22), px(22), theme.dash_bg_color);
 
     if (m_lastState == BLEState::connected) {
       char buffer[10];
@@ -60,13 +60,13 @@ class ScaleStatus : public Widget {
         snprintf(buffer, 10, "%0.0fg", m_lastWeight);
       }
 
-      tft.setFreeFont(&FreeSans9pt7b);
+      tft.setFreeFont(FONT_BODY_SM);
       tft.setTextColor(theme.text_color, theme.dash_bg_color);
-      tft.drawString(buffer, m_x + 23, m_y + 4);
+      tft.drawString(buffer, m_x + px(23), m_y + px(4));
     } else {
-      tft.setFreeFont(&FreeSans9pt7b);
+      tft.setFreeFont(FONT_BODY_SM);
       tft.setTextColor(theme.text_color, theme.dash_bg_color);
-      tft.drawString("Scale", m_x + 23, m_y + 4);
+      tft.drawString("Scale", m_x + px(23), m_y + px(4));
     }
   }
 

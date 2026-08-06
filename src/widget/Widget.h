@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Data.h>
+#include <widget/Layout.h>
 
 #ifdef M5_STICK
 #include <M5Display.h>

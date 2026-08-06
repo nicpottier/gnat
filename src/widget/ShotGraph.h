@@ -81,69 +81,74 @@ class ShotGraph : public Widget {
     if (m_sprite && !m_spriteFailed) {
       m_sprite->fillSprite(theme.bg_color);
       drawFrames(*m_sprite, 0, 0);
-      m_sprite->drawRoundRect(0, 0, m_width, m_height, 10, theme.dash_border_color);
+      m_sprite->drawRoundRect(0, 0, m_width, m_height, px(10), theme.dash_border_color);
       m_sprite->pushSprite(m_x, m_y);
     } else {
       tft.fillRect(m_x, m_y, m_width, m_height, theme.bg_color);
       drawFrames(tft, m_x, m_y);
-      tft.drawRoundRect(m_x, m_y, m_width, m_height, 10, theme.dash_border_color);
+      tft.drawRoundRect(m_x, m_y, m_width, m_height, px(10), theme.dash_border_color);
     }
   }
 
  private:
-  // how many samples fit in our plot area
+  // how many samples fit in our plot area, samples advance by the ui scale
+  // so a shot covers the same physical width on any panel
   int maxSamples() {
-    return min(m_width - 4, shot_graph_capacity);
+    return min((m_width - px(4)) * 100 / UI_SCALE_PCT, shot_graph_capacity);
   }
 
   // draws our history oldest to newest as connected lines, newest hugging the
   // right edge once we've filled the width so the graph scrolls left
   void drawFrames(TFT_eSPI &gfx, int x0, int y0) {
+    int prevX = -1;
     int prevFlow = -1;
     int prevPressure = -1;
     int prevWeight = -1;
 
     for (int i = 0; i < m_count; i++) {
       auto &frame = m_frames[(m_head - m_count + 1 + i + shot_graph_capacity) % shot_graph_capacity];
-      int x = x0 + 2 + i;
+      int x = x0 + px(2) + i * UI_SCALE_PCT / 100;
 
       int flow = valueY(y0, frame.groupFlow, 0, 10, 45);
-      plotValue(gfx, x, flow, prevFlow, theme.water_color);
+      plotValue(gfx, x, flow, prevX, prevFlow, theme.water_color);
       prevFlow = flow;
 
       int pressure = valueY(y0, frame.groupPressure, 0, 12, 29);
-      plotValue(gfx, x, pressure, prevPressure, theme.pressure_color);
+      plotValue(gfx, x, pressure, prevX, prevPressure, theme.pressure_color);
       prevPressure = pressure;
 
       // weight only plots for samples taken with the scale connected
       if (frame.scaleBLEState == BLEState::connected) {
         int weight = valueY(y0, frame.weight, 0, 50, 15);
-        plotValue(gfx, x, weight, prevWeight, theme.weight_color);
+        plotValue(gfx, x, weight, prevX, prevWeight, theme.weight_color);
         prevWeight = weight;
       } else {
         prevWeight = -1;
       }
+
+      prevX = x;
     }
   }
 
   // connects the previous sample to this one so fast changes leave no gaps
-  void plotValue(TFT_eSPI &gfx, int x, int y, int prevY, uint32_t color) {
-    if (prevY < 0) {
+  void plotValue(TFT_eSPI &gfx, int x, int y, int prevX, int prevY, uint32_t color) {
+    if (prevY < 0 || prevX < 0) {
       gfx.drawPixel(x, y, color);
     } else {
-      gfx.drawLine(x - 1, prevY, x, y, color);
+      gfx.drawLine(prevX, prevY, x, y, color);
     }
   }
 
-  // scales a value to a y position, clamped inside our plot area
+  // scales a value to a y position, clamped inside our plot area, offsets are
+  // in baseline design units
   int valueY(int y0, double value, int min, int max, int offset) {
-    auto scaled = (value - min) / (double)(max - min) * (m_height - offset - 2);
-    int y = m_height - scaled - offset;
+    auto scaled = (value - min) / (double)(max - min) * (m_height - px(offset) - px(2));
+    int y = m_height - scaled - px(offset);
 
-    if (y < 2) {
-      y = 2;
-    } else if (y > m_height - 2) {
-      y = m_height - 2;
+    if (y < px(2)) {
+      y = px(2);
+    } else if (y > m_height - px(2)) {
+      y = m_height - px(2);
     }
     return y0 + y;
   }
