@@ -654,13 +654,16 @@ void loop() {
       if (g_ctx.machineState == MachineState::sleep && lastState != g_ctx.machineState) {
 #ifdef M5_STICK
         M5.Axp.ScreenSwitch(false);
-#endif        
+#endif
 #ifdef TTGO
-        ledcWrite(BACKLIGHT_PWM_CHANNEL, 0);
+        backlightOff();
         tft.writecommand(ST7789_DISPOFF);
 #endif
 #ifdef ESP32_2432S028R
-  digitalWrite(TFT_BL, LOW);
+        digitalWrite(TFT_BL, LOW);
+#endif
+#ifdef DISPLAY_RM67162
+        lcd_sleep();
 #endif
 
         // send a sleep command to our BLE devices
@@ -675,8 +678,17 @@ void loop() {
         M5.Axp.ScreenSwitch(true);
 #endif
 #ifdef TTGO
-        ledcWrite(BACKLIGHT_PWM_CHANNEL, BACKLIGHT_ON);
+        backlightOn();
         tft.writecommand(ST7789_DISPON);
+#endif
+#ifdef ESP32_2432S028R
+        digitalWrite(TFT_BL, HIGH);
+#endif
+#ifdef DISPLAY_RM67162
+        // waking the panel needs a full re-init, then restore our frame
+        rm67162_init();
+        lcd_setRotation(g_ctx.config.isFlipped() ? 1 : 3);
+        lcd_PushColors(0, 0, screenWidth, screenHeight, (uint16_t*)g_frame.getPointer());
 #endif
         idleStart = millis();
 
