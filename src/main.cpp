@@ -685,10 +685,12 @@ void loop() {
         digitalWrite(TFT_BL, HIGH);
 #endif
 #ifdef DISPLAY_RM67162
-        // waking the panel needs a full re-init, then restore our frame
-        rm67162_init();
-        lcd_setRotation(g_ctx.config.isFlipped() ? 1 : 3);
-        lcd_PushColors(0, 0, screenWidth, screenHeight, (uint16_t*)g_frame.getPointer());
+        // wake the panel and restore our frame, but only when we actually
+        // slept, this branch also fires on boot with lastState still unknown
+        if (lastState == MachineState::sleep) {
+          lcd_wake();
+          lcd_PushColors(0, 0, screenWidth, screenHeight, (uint16_t*)g_frame.getPointer());
+        }
 #endif
         idleStart = millis();
 

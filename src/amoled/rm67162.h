@@ -12,3 +12,4 @@ void lcd_DrawPoint(uint16_t x, uint16_t y, uint16_t color);
 void lcd_PushColors(uint16_t x, uint16_t y, uint16_t width, uint16_t high, uint16_t *data);
 void lcd_PushColors(uint16_t *data, uint32_t len);
 void lcd_sleep();
+void lcd_wake();

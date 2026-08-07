@@ -175,10 +175,16 @@ void rm67162_init(void)
         .flags = SPI_DEVICE_HALFDUPLEX,
         .queue_size = 17,
     };
-    ret = spi_bus_initialize(TFT_SPI_HOST, &buscfg, SPI_DMA_CH_AUTO);
-    ESP_ERROR_CHECK(ret);
-    ret = spi_bus_add_device(TFT_SPI_HOST, &devcfg, &spi);
-    ESP_ERROR_CHECK(ret);
+    // re-inits after machine sleep must not set the bus up twice, the
+    // second attempt would abort
+    static bool bus_ready = false;
+    if (!bus_ready) {
+        ret = spi_bus_initialize(TFT_SPI_HOST, &buscfg, SPI_DMA_CH_AUTO);
+        ESP_ERROR_CHECK(ret);
+        ret = spi_bus_add_device(TFT_SPI_HOST, &devcfg, &spi);
+        ESP_ERROR_CHECK(ret);
+        bus_ready = true;
+    }
 
 #else
     SPI.begin(TFT_SCK, -1, TFT_MOSI, TFT_CS);
@@ -368,6 +374,15 @@ void lcd_PushColors(uint16_t *data, uint32_t len)
 void lcd_sleep()
 {
     lcd_send_cmd(0x10, NULL, 0);
+}
+
+// wake from lcd_sleep, the panel keeps its config so sleep out and
+// display on are all it needs
+void lcd_wake()
+{
+    lcd_send_cmd(0x11, NULL, 0);
+    delay(120);
+    lcd_send_cmd(0x29, NULL, 0);
 }
 
 #endif  // DISPLAY_RM67162
