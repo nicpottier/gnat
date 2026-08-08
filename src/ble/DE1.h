@@ -14,6 +14,7 @@ const auto de1_sample_uuid = "0xa00d";
 const auto de1_header_uuid = "0xa00f";
 const auto de1_frame_uuid = "0xa010";
 const auto de1_mmr_write_uuid = "0xa006";
+const auto de1_shot_settings_uuid = "0xa00b";
 
 // MMR register holding the flush timeout, value is tenths of a second
 const uint32_t de1_mmr_flush_timeout = 0x803848;
@@ -25,6 +26,9 @@ const uint8_t de1_stop_cmd = 0x02;
 // configured value is set, without this write the machine falls back to a higher
 // stored threshold and asks for water sooner than it needs to
 const uint8_t de1_default_refill_level_mm = 3;
+
+// how long hot water may run before shutting off, in seconds
+const uint8_t de1_hot_water_length_s = 60;
 
 class DE1 : public Device, public Machine {
  public:
@@ -102,6 +106,23 @@ class DE1 : public Device, public Machine {
     // if we are connected, update the machine immediately
     if (m_mmrChar) {
       return writeFlushTimeout();
+    }
+    return true;
+  }
+
+  bool setShotSettings(int steamTemp, int steamSeconds, int waterTemp, int waterVol) {
+    if (steamTemp < 0 || steamTemp > 170 || steamSeconds < 0 || steamSeconds > 255 || waterTemp < 0 ||
+        waterTemp > 100 || waterVol < 0 || waterVol > 255) {
+      return false;
+    }
+    m_steamTemp = steamTemp;
+    m_steamSeconds = steamSeconds;
+    m_waterTemp = waterTemp;
+    m_waterVol = waterVol;
+
+    // if we are connected, update the machine immediately
+    if (m_settingsChar) {
+      return writeShotSettings();
     }
     return true;
   }
@@ -190,6 +211,10 @@ class DE1 : public Device, public Machine {
           m_mmrChar = ch;
         }
 
+        if (ch->getUUID().toString() == de1_shot_settings_uuid) {
+          m_settingsChar = ch;
+        }
+
         if (ch->canNotify()) {
           Serial.print("  CAN NOTIFY");
           // state update
@@ -246,6 +271,14 @@ class DE1 : public Device, public Machine {
       }
     }
 
+    // push our steam and hot water settings
+    if (m_settingsChar) {
+      if (writeShotSettings()) {
+        Serial.printf("[%s] set shot settings: steam %dC %ds, water %dC %dml\n", getName().c_str(), m_steamTemp,
+                      m_steamSeconds, m_waterTemp, m_waterVol);
+      }
+    }
+
     // load our selected profile onto the machine
     if (m_headerChar && m_frameChar) {
       if (uploadProfile()) {
@@ -263,6 +296,7 @@ class DE1 : public Device, public Machine {
     m_headerChar = nullptr;
     m_frameChar = nullptr;
     m_mmrChar = nullptr;
+    m_settingsChar = nullptr;
   }
 
   void selfRegister(Devices* devices) {
@@ -318,6 +352,20 @@ class DE1 : public Device, public Machine {
     return writeMMR(de1_mmr_flush_timeout, m_flushSeconds * 10);
   }
 
+  // the ShotSettings characteristic: a settings bitmask, steam temp and
+  // length, hot water temp, volume and length, target espresso volume, then
+  // a big endian U16P8 group temp (0, the profile owns group temp)
+  bool writeShotSettings() {
+    uint8_t packet[9] = {0};
+    packet[1] = m_steamTemp;
+    packet[2] = m_steamSeconds;
+    packet[3] = m_waterTemp;
+    packet[4] = m_waterVol;
+    packet[5] = de1_hot_water_length_s;
+    return m_settingsChar->writeValue(packet, sizeof(packet), true);
+  }
+
+  NimBLERemoteCharacteristic* m_settingsChar = nullptr;
   NimBLERemoteCharacteristic* m_cmdChar = nullptr;
   NimBLERemoteCharacteristic* m_stateChar = nullptr;
   NimBLERemoteCharacteristic* m_waterChar = nullptr;
@@ -328,6 +376,10 @@ class DE1 : public Device, public Machine {
   uint8_t m_refillLevelMm = de1_default_refill_level_mm;
   int m_profileIdx = 0;
   int m_flushSeconds = 3;
+  int m_steamTemp = 150;
+  int m_steamSeconds = 120;
+  int m_waterTemp = 85;
+  int m_waterVol = 120;
 };
 
 }  // namespace ble

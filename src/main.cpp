@@ -458,6 +458,8 @@ void setup() {
   de1->setRefillLevel(g_ctx.config.getRefillLevel());
   de1->setProfile(g_ctx.config.getProfile() - 1);
   de1->setFlushSeconds(g_ctx.config.getFlushSeconds());
+  de1->setShotSettings(g_ctx.config.getSteamTemp(), g_ctx.config.getSteamSeconds(), g_ctx.config.getWaterTemp(),
+                       g_ctx.config.getWaterVol());
 
   s_brewScreen = new Screen{ScreenID::brew};
   s_brewScreen->addWidget(new widget::BrewBackground{screenWidth, screenHeight});
@@ -979,13 +981,18 @@ void loop() {
       }
 #endif
 
-      // if our config changed, pass along our new refill level and flush time
+      // if our config changed, pass along our new refill level, flush time
+      // and steam / hot water settings
       if (g_ctx.config.getVersion() != lastConfigVersion) {
         lastConfigVersion = g_ctx.config.getVersion();
         auto refill = cmd::CommandRequest::newRefillLevelCommand(g_ctx.config.getRefillLevel());
         xQueueSend(cmdQ, &refill, 10);
         auto flush = cmd::CommandRequest::newFlushSecondsCommand(g_ctx.config.getFlushSeconds());
         xQueueSend(cmdQ, &flush, 10);
+        auto settings = cmd::CommandRequest::newShotSettingsCommand(
+            g_ctx.config.getSteamTemp(), g_ctx.config.getSteamSeconds(), g_ctx.config.getWaterTemp(),
+            g_ctx.config.getWaterVol());
+        xQueueSend(cmdQ, &settings, 10);
       }
 
       // if our selected profile changed, start (or restart) our settle timer, this

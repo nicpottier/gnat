@@ -58,6 +58,22 @@
             <input type="number" name="shot_margin" id="shot_margin" placeholder="3" min="1" max="15" required>
             <small>Seconds off the target before gnat suggests a grind change.</small>
 
+            <label for="steam_t">Steam Temperature (C)</label>
+            <input type="number" name="steam_t" id="steam_t" placeholder="150" min="120" max="170" required>
+            <small>Steam wand temperature in celsius.</small>
+
+            <label for="steam_s">Steam Time (s)</label>
+            <input type="number" name="steam_s" id="steam_s" placeholder="120" min="10" max="250" required>
+            <small>How many seconds steam runs before shutting off.</small>
+
+            <label for="water_t">Hot Water Temperature (C)</label>
+            <input type="number" name="water_t" id="water_t" placeholder="85" min="50" max="100" required>
+            <small>Hot water spout temperature in celsius.</small>
+
+            <label for="water_v">Hot Water Volume (ml)</label>
+            <input type="number" name="water_v" id="water_v" placeholder="120" min="20" max="250" required>
+            <small>How much hot water is dispensed.</small>
+
             <label for="require_scale">Require Scale</label>
             <select name="require_scale" id="require_scale">
                 <option value="2" selected>Yes</option>
@@ -113,6 +129,18 @@
 
     const shotMargin = urlParams.get("shot_margin");
     document.getElementById("shot_margin").value = shotMargin;
+
+    const steamTemp = urlParams.get("steam_t");
+    document.getElementById("steam_t").value = steamTemp;
+
+    const steamSeconds = urlParams.get("steam_s");
+    document.getElementById("steam_s").value = steamSeconds;
+
+    const waterTemp = urlParams.get("water_t");
+    document.getElementById("water_t").value = waterTemp;
+
+    const waterVol = urlParams.get("water_v");
+    document.getElementById("water_v").value = waterVol;
 
     const finerDirection = urlParams.get("finer_direction");
     if (finerDirection) {

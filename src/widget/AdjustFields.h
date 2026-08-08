@@ -63,6 +63,20 @@ static const AdjustValue grind_adjust_values[] = {
      [](Config& c, int v) { c.setFinerDirection(v); }, direction_names},
 };
 
+static const AdjustValue steam_adjust_values[] = {
+    {"Temp", "C", 1, min_steam_temp, max_steam_temp, [](Config& c) { return c.getSteamTemp(); },
+     [](Config& c, int v) { c.setSteamTemp(v); }},
+    {"Time", "s", 10, min_steam_seconds, max_steam_seconds, [](Config& c) { return c.getSteamSeconds(); },
+     [](Config& c, int v) { c.setSteamSeconds(v); }},
+};
+
+static const AdjustValue hot_water_adjust_values[] = {
+    {"Temp", "C", 1, min_water_temp, max_water_temp, [](Config& c) { return c.getWaterTemp(); },
+     [](Config& c, int v) { c.setWaterTemp(v); }},
+    {"Vol", "ml", 10, min_water_vol, max_water_vol, [](Config& c) { return c.getWaterVol(); },
+     [](Config& c, int v) { c.setWaterVol(v); }},
+};
+
 static const AdjustValue machine_adjust_values[] = {
     {"Sleep", "m", 5, 5, max_sleep_time, [](Config& c) { return c.getSleepTime(); },
      [](Config& c, int v) { c.setSleepTime(v); }},
@@ -84,6 +98,8 @@ const uint32_t grind_page_color = 0x7A77;
 const uint32_t machine_page_color = 0x4A69;
 const uint32_t app_page_color = 0x032C;
 const uint32_t profile_page_color = 0x8926;
+const uint32_t steam_page_color = 0x63D1;
+const uint32_t hot_water_page_color = 0x1B6D;
 
 static const AdjustPage adjust_pages[] = {
     // a null values list marks the custom profile page, which cycles through
@@ -95,6 +111,9 @@ static const AdjustPage adjust_pages[] = {
      espresso_adjust_values, 2},
     {"Grind Alerts", TFT_WHITE, grind_page_color, grind_page_color, TFT_WHITE, TFT_WHITE, drawGear,
      grind_adjust_values, 2},
+    {"Steam", TFT_WHITE, steam_page_color, steam_page_color, TFT_WHITE, TFT_WHITE, drawClock, steam_adjust_values, 2},
+    {"Hot Water", TFT_WHITE, hot_water_page_color, hot_water_page_color, TFT_WHITE, TFT_WHITE, drawDrop,
+     hot_water_adjust_values, 2},
     {"Machine", TFT_WHITE, machine_page_color, machine_page_color, TFT_WHITE, TFT_WHITE, drawPower,
      machine_adjust_values, 2},
     {"App", TFT_WHITE, app_page_color, app_page_color, TFT_WHITE, TFT_WHITE, drawSliders, app_adjust_values, 1,

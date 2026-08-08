@@ -15,6 +15,12 @@ static const char* shot_target_key = "shot_target";
 static const char* orientation_key = "orientation";
 static const char* flush_seconds_key = "flush_seconds";
 static const char* require_scale_key = "require_scale";
+// note: the whole config query string must fit the one byte EEPROM length
+// prefix, keep new keys short
+static const char* steam_temp_key = "steam_t";
+static const char* steam_seconds_key = "steam_s";
+static const char* water_temp_key = "water_t";
+static const char* water_vol_key = "water_v";
 static const char* profile_key = "profile";
 static const char* enabled_key = "enabled";
 static const char* error_key = "error";
@@ -70,6 +76,22 @@ static const int require_scale_off = 1;
 static const int require_scale_on = 2;
 static const int default_require_scale = require_scale_on;
 
+static const int default_steam_temp = 150;
+static const int max_steam_temp = 170;
+static const int min_steam_temp = 120;
+
+static const int default_steam_seconds = 120;
+static const int max_steam_seconds = 250;
+static const int min_steam_seconds = 10;
+
+static const int default_water_temp = 85;
+static const int max_water_temp = 100;
+static const int min_water_temp = 50;
+
+static const int default_water_vol = 120;
+static const int max_water_vol = 250;
+static const int min_water_vol = 20;
+
 // room for up to this many bytes of enabled profile mask (128 profiles)
 static const int max_profile_mask_bytes = 16;
 
@@ -97,6 +119,10 @@ class Config {
         m_orientation{default_orientation},
         m_flushSeconds{default_flush_seconds},
         m_requireScale{default_require_scale},
+        m_steamTemp{default_steam_temp},
+        m_steamSeconds{default_steam_seconds},
+        m_waterTemp{default_water_temp},
+        m_waterVol{default_water_vol},
         m_profile{profile_default},
         m_error(ConfigError::none) {
     resetEnabled();
@@ -114,13 +140,17 @@ class Config {
     auto orientation = getUnsignedInt(query, orientation_key);
     auto flushSeconds = getUnsignedInt(query, flush_seconds_key);
     auto requireScale = getUnsignedInt(query, require_scale_key);
+    auto steamTemp = getUnsignedInt(query, steam_temp_key);
+    auto steamSeconds = getUnsignedInt(query, steam_seconds_key);
+    auto waterTemp = getUnsignedInt(query, water_temp_key);
+    auto waterVol = getUnsignedInt(query, water_vol_key);
     auto profile = getUnsignedInt(query, profile_key);
 
     char enabled[max_profile_mask_bytes * 2 + 1] = "";
     getStringValue(query, enabled_key, enabled, sizeof(enabled));
 
     return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, shotTarget, orientation,
-                  flushSeconds, requireScale, profile, enabled);
+                  flushSeconds, requireScale, steamTemp, steamSeconds, waterTemp, waterVol, profile, enabled);
   }
 
   static Config fromRequest(AsyncWebServerRequest* request) {
@@ -185,6 +215,30 @@ class Config {
       requireScale = parseUnsignedInt(param->value().c_str());
     }
 
+    int steamTemp = 0;
+    param = request->getParam(steam_temp_key, true, false);
+    if (param) {
+      steamTemp = parseUnsignedInt(param->value().c_str());
+    }
+
+    int steamSeconds = 0;
+    param = request->getParam(steam_seconds_key, true, false);
+    if (param) {
+      steamSeconds = parseUnsignedInt(param->value().c_str());
+    }
+
+    int waterTemp = 0;
+    param = request->getParam(water_temp_key, true, false);
+    if (param) {
+      waterTemp = parseUnsignedInt(param->value().c_str());
+    }
+
+    int waterVol = 0;
+    param = request->getParam(water_vol_key, true, false);
+    if (param) {
+      waterVol = parseUnsignedInt(param->value().c_str());
+    }
+
     const char* enabled = "";
     param = request->getParam(enabled_key, true, false);
     if (param) {
@@ -192,7 +246,7 @@ class Config {
     }
 
     return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, shotTarget, orientation,
-                  flushSeconds, requireScale, 0, enabled);
+                  flushSeconds, requireScale, steamTemp, steamSeconds, waterTemp, waterVol, 0, enabled);
   }
 
   // returns a url encoded version of the config, suitable for writing to EEProm
@@ -237,6 +291,22 @@ class Config {
     if (m_requireScale != 0) {
       size -= strlen(field);
       field += snprintf(field, size, "%s=%d&", require_scale_key, m_requireScale);
+    }
+    if (m_steamTemp != 0) {
+      size -= strlen(field);
+      field += snprintf(field, size, "%s=%d&", steam_temp_key, m_steamTemp);
+    }
+    if (m_steamSeconds != 0) {
+      size -= strlen(field);
+      field += snprintf(field, size, "%s=%d&", steam_seconds_key, m_steamSeconds);
+    }
+    if (m_waterTemp != 0) {
+      size -= strlen(field);
+      field += snprintf(field, size, "%s=%d&", water_temp_key, m_waterTemp);
+    }
+    if (m_waterVol != 0) {
+      size -= strlen(field);
+      field += snprintf(field, size, "%s=%d&", water_vol_key, m_waterVol);
     }
     if (m_profile != 0) {
       size -= strlen(field);
@@ -398,6 +468,58 @@ class Config {
     m_version = millis();
   }
 
+  // steam temperature in C
+  int getSteamTemp() {
+    return m_steamTemp;
+  }
+
+  void setSteamTemp(int temp) {
+    if (temp < min_steam_temp || temp > max_steam_temp) {
+      return;
+    }
+    m_steamTemp = temp;
+    m_version = millis();
+  }
+
+  // how long steam runs before shutting off, in seconds
+  int getSteamSeconds() {
+    return m_steamSeconds;
+  }
+
+  void setSteamSeconds(int seconds) {
+    if (seconds < min_steam_seconds || seconds > max_steam_seconds) {
+      return;
+    }
+    m_steamSeconds = seconds;
+    m_version = millis();
+  }
+
+  // hot water temperature in C
+  int getWaterTemp() {
+    return m_waterTemp;
+  }
+
+  void setWaterTemp(int temp) {
+    if (temp < min_water_temp || temp > max_water_temp) {
+      return;
+    }
+    m_waterTemp = temp;
+    m_version = millis();
+  }
+
+  // hot water volume in ml
+  int getWaterVol() {
+    return m_waterVol;
+  }
+
+  void setWaterVol(int vol) {
+    if (vol < min_water_vol || vol > max_water_vol) {
+      return;
+    }
+    m_waterVol = vol;
+    m_version = millis();
+  }
+
   // how long the machine should run a flush for
   int getFlushSeconds() {
     return m_flushSeconds;
@@ -480,7 +602,8 @@ class Config {
 
  private:
   Config(int sleepTime, int stopAtWeight, int refillLevel, int warnLevel, int finerDirection, int shotMargin,
-         int shotTarget, int orientation, int flushSeconds, int requireScale, int profile, const char* enabled)
+         int shotTarget, int orientation, int flushSeconds, int requireScale, int steamTemp, int steamSeconds,
+         int waterTemp, int waterVol, int profile, const char* enabled)
       : m_sleepTime{sleepTime},
         m_stopWeight{stopAtWeight},
         m_refillLevel{refillLevel},
@@ -491,6 +614,10 @@ class Config {
         m_orientation{orientation},
         m_flushSeconds{flushSeconds},
         m_requireScale{requireScale},
+        m_steamTemp{steamTemp},
+        m_steamSeconds{steamSeconds},
+        m_waterTemp{waterTemp},
+        m_waterVol{waterVol},
         m_profile{profile},
         m_error{ConfigError::none} {
     setEnabledFromHex(enabled);
@@ -542,6 +669,22 @@ class Config {
 
     if (m_requireScale < require_scale_off || m_requireScale > require_scale_on) {
       m_requireScale = default_require_scale;
+    }
+
+    if (m_steamTemp < min_steam_temp || m_steamTemp > max_steam_temp) {
+      m_steamTemp = default_steam_temp;
+    }
+
+    if (m_steamSeconds < min_steam_seconds || m_steamSeconds > max_steam_seconds) {
+      m_steamSeconds = default_steam_seconds;
+    }
+
+    if (m_waterTemp < min_water_temp || m_waterTemp > max_water_temp) {
+      m_waterTemp = default_water_temp;
+    }
+
+    if (m_waterVol < min_water_vol || m_waterVol > max_water_vol) {
+      m_waterVol = default_water_vol;
     }
 
     if (m_flushSeconds == 0) {
@@ -737,6 +880,14 @@ class Config {
 
   // whether shots are stopped when no scale is connected
   int m_requireScale;
+
+  // steam temperature in C and how long steam runs, in seconds
+  int m_steamTemp;
+  int m_steamSeconds;
+
+  // hot water temperature in C and volume in ml
+  int m_waterTemp;
+  int m_waterVol;
 
   // the selected profile, 1-based index into the compiled in profiles
   int m_profile;
