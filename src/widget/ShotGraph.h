@@ -1,5 +1,6 @@
 #pragma once
 
+#include <profiles.h>
 #include <widget/Theme.h>
 #include <widget/Widget.h>
 
@@ -11,6 +12,9 @@ class ShotFrame {
   double groupPressure = 0;
   double headTemp = 0;
   double groupFlow = 0;
+  double targetPressure = 0;
+  double targetFlow = 0;
+  uint8_t frameNumber = 0;
   BLEState scaleBLEState = BLEState::unknown;
 };
 
@@ -20,6 +24,11 @@ const int shot_graph_capacity = 480;
 // how thick the graph traces draw, in baseline design units
 const uint32_t shot_graph_bg = theme.bg_color;
 const int shot_graph_line = 4;
+
+// the machine's target pressure and flow draw underneath the actual traces
+// as thin dimmed lines so you can see how well the profile is tracking
+const uint32_t shot_graph_target_pressure = 0x2243;
+const uint32_t shot_graph_target_flow = 0x000F;
 
 class ShotGraph : public Widget {
  public:
@@ -52,8 +61,12 @@ class ShotGraph : public Widget {
       m_frames[m_head].groupPressure = sample.groupPressure;
       m_frames[m_head].headTemp = sample.headTemp;
       m_frames[m_head].groupFlow = sample.groupFlow;
+      m_frames[m_head].targetPressure = sample.targetGroupPressure;
+      m_frames[m_head].targetFlow = sample.targetGroupFlow;
+      m_frames[m_head].frameNumber = sample.frameNumber;
       m_frames[m_head].scaleBLEState = ctx.getScaleBLEState();
       m_lastSample = ctx.lastSample.sampleTime;
+      m_profile = ctx.config.getProfile();
 
       if (m_count < maxSamples()) {
         m_count++;
@@ -85,11 +98,13 @@ class ShotGraph : public Widget {
     if (m_sprite && !m_spriteFailed) {
       m_sprite->fillSprite(shot_graph_bg);
       drawFrames(*m_sprite, 0, 0);
+      drawFrameNumber(*m_sprite, 0, 0);
       m_sprite->drawRoundRect(0, 0, m_width, m_height, px(10), theme.dash_border_color);
       m_sprite->pushSprite(m_x, m_y);
     } else {
       tft.fillRect(m_x, m_y, m_width, m_height, shot_graph_bg);
       drawFrames(tft, m_x, m_y);
+      drawFrameNumber(tft, m_x, m_y);
       tft.drawRoundRect(m_x, m_y, m_width, m_height, px(10), theme.dash_border_color);
     }
   }
@@ -102,9 +117,29 @@ class ShotGraph : public Widget {
   }
 
   // draws our history oldest to newest as connected lines, newest hugging the
-  // right edge once we've filled the width so the graph scrolls left
+  // right edge once we've filled the width so the graph scrolls left, targets
+  // draw first so the actual traces sit on top of them
   void drawFrames(TFT_eSPI &gfx, int x0, int y0) {
     int prevX = -1;
+    int prevTargetFlow = -1;
+    int prevTargetPressure = -1;
+
+    for (int i = 0; i < m_count; i++) {
+      auto &frame = m_frames[(m_head - m_count + 1 + i + shot_graph_capacity) % shot_graph_capacity];
+      int x = x0 + px(2) + i * UI_SCALE_PCT / 100;
+
+      int targetFlow = valueY(y0, frame.targetFlow, 0, 10, 45);
+      plotThin(gfx, x, targetFlow, prevX, prevTargetFlow, shot_graph_target_flow);
+      prevTargetFlow = targetFlow;
+
+      int targetPressure = valueY(y0, frame.targetPressure, 0, 12, 29);
+      plotThin(gfx, x, targetPressure, prevX, prevTargetPressure, shot_graph_target_pressure);
+      prevTargetPressure = targetPressure;
+
+      prevX = x;
+    }
+
+    prevX = -1;
     int prevFlow = -1;
     int prevPressure = -1;
     int prevWeight = -1;
@@ -131,6 +166,30 @@ class ShotGraph : public Widget {
       }
 
       prevX = x;
+    }
+  }
+
+  // during a shot, shows which profile frame the machine is executing
+  void drawFrameNumber(TFT_eSPI &gfx, int x0, int y0) {
+    if (m_state != MachineState::espresso || m_count == 0 || m_profile < 1 || m_profile > profile_count) {
+      return;
+    }
+
+    char buffer[10];
+    snprintf(buffer, 10, "%d/%d", m_frames[m_head].frameNumber + 1, profiles[m_profile - 1].frameCount);
+    gfx.setFreeFont(FONT_BODY_SM);
+    gfx.setTextColor(theme.text_color, shot_graph_bg);
+    gfx.setTextDatum(TR_DATUM);
+    gfx.drawString(buffer, x0 + m_width - px(10), y0 + px(6));
+    gfx.setTextDatum(TL_DATUM);
+  }
+
+  // a single thin line for target traces
+  void plotThin(TFT_eSPI &gfx, int x, int y, int prevX, int prevY, uint32_t color) {
+    if (prevY < 0 || prevX < 0) {
+      gfx.drawPixel(x, y, color);
+    } else {
+      gfx.drawLine(prevX, prevY, x, y, color);
     }
   }
 
@@ -173,6 +232,9 @@ class ShotGraph : public Widget {
   MachineSubstate m_substate = MachineSubstate::unknown;
 
   int m_lastSample = 0;
+
+  // the selected profile when the last sample landed, for the frame count
+  int m_profile = 0;
 
   // ring buffer of samples, m_head is the newest, m_count how many are valid
   int m_head = 0;
