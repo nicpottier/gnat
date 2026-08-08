@@ -142,11 +142,19 @@ class DE1 : public Device, public Machine {
       return false;
     }
 
-    // flow control (CtrlF) at the mix temp (TMixTemp) ignoring the pressure
-    // limit (IgnoreLimit), 6 ml/s, frame length covers the volume plus slack
+    // flow control (CtrlF) ignoring the pressure limit (IgnoreLimit) at
+    // 6 ml/s, frame length covers the volume plus slack
     uint8_t secs = min(120, vol / 6 + 15);
-    uint8_t frame[8] = {0, 0x51, 6 * 16, uint8_t(temp * 2), uint8_t(0x80 | secs), 0, 0, 0};
-    return m_frameChar->writeValue(frame, sizeof(frame), true);
+    uint8_t frame[8] = {0, 0x41, 6 * 16, uint8_t(temp * 2), uint8_t(0x80 | secs), 0, 0, 0};
+    if (!m_frameChar->writeValue(frame, sizeof(frame), true)) {
+      return false;
+    }
+
+    // profiles close with a tail frame at the index after the last frame
+    // carrying the max total volume, without it the machine refuses to run
+    uint16_t maxVol = min(vol + 50, 1023);
+    uint8_t tail[8] = {1, uint8_t((maxVol >> 8) & 0x3), uint8_t(maxVol & 0xFF), 0, 0, 0, 0, 0};
+    return m_frameChar->writeValue(tail, sizeof(tail), true);
   }
 
   void stateUpdate(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* d, size_t length, bool isNotify) {
