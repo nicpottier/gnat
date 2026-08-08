@@ -15,10 +15,10 @@ enum class UpdateType : uint8_t {
   profile_cycle_update,
 };
 
-enum class ScreenID : uint8_t { unknown, brew, connect, config, feedback, adjust, splash };
+enum class ScreenID : uint8_t { unknown, brew, connect, config, feedback, adjust, splash, pour };
 
 // full screen feedback we show the user, dismissed with the profile button
-enum class FeedbackType : uint8_t { none, grind_finer, grind_coarser, nailed_it, add_water };
+enum class FeedbackType : uint8_t { none, grind_finer, grind_coarser, nailed_it, add_water, no_scale };
 
 enum class DeviceType : uint8_t { unknown, machine, scale, last };
 
@@ -268,6 +268,8 @@ class ProfileCycleUpdate {
         ctx->feedbackSeconds = 29.8;
       } else if (ctx->feedback == FeedbackType::nailed_it) {
         ctx->feedback = FeedbackType::add_water;
+      } else if (ctx->feedback == FeedbackType::add_water) {
+        ctx->feedback = FeedbackType::no_scale;
       } else {
         ctx->feedbackPreview = false;
         ctx->feedback = FeedbackType::none;

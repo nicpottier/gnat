@@ -58,6 +58,13 @@
             <input type="number" name="shot_margin" id="shot_margin" placeholder="3" min="1" max="15" required>
             <small>Seconds off the target before gnat suggests a grind change.</small>
 
+            <label for="require_scale">Require Scale</label>
+            <select name="require_scale" id="require_scale">
+                <option value="2" selected>Yes</option>
+                <option value="1">No</option>
+            </select>
+            <small>Stop shots immediately when no scale is connected, since gnat can't stop at weight without one.</small>
+
             <label for="finer_direction">Finer Direction</label>
             <select name="finer_direction" id="finer_direction">
                 <option value="2" selected>Right</option>
@@ -110,6 +117,11 @@
     const finerDirection = urlParams.get("finer_direction");
     if (finerDirection) {
         document.getElementById("finer_direction").value = finerDirection;
+    }
+
+    const requireScale = urlParams.get("require_scale");
+    if (requireScale) {
+        document.getElementById("require_scale").value = requireScale;
     }
 
     const orientation = urlParams.get("orientation");

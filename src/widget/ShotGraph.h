@@ -17,6 +17,10 @@ class ShotFrame {
 // how many samples of history we keep, bounds the drawable width
 const int shot_graph_capacity = 480;
 
+// how thick the graph traces draw, in baseline design units
+const uint32_t shot_graph_bg = theme.bg_color;
+const int shot_graph_line = 4;
+
 class ShotGraph : public Widget {
  public:
   ShotGraph(int x, int y, int width, int height) : m_x{x}, m_y{y}, m_width{width}, m_height{height} {};
@@ -79,12 +83,12 @@ class ShotGraph : public Widget {
     }
 
     if (m_sprite && !m_spriteFailed) {
-      m_sprite->fillSprite(theme.bg_color);
+      m_sprite->fillSprite(shot_graph_bg);
       drawFrames(*m_sprite, 0, 0);
       m_sprite->drawRoundRect(0, 0, m_width, m_height, px(10), theme.dash_border_color);
       m_sprite->pushSprite(m_x, m_y);
     } else {
-      tft.fillRect(m_x, m_y, m_width, m_height, theme.bg_color);
+      tft.fillRect(m_x, m_y, m_width, m_height, shot_graph_bg);
       drawFrames(tft, m_x, m_y);
       tft.drawRoundRect(m_x, m_y, m_width, m_height, px(10), theme.dash_border_color);
     }
@@ -130,12 +134,17 @@ class ShotGraph : public Widget {
     }
   }
 
-  // connects the previous sample to this one so fast changes leave no gaps
+  // connects the previous sample to this one so fast changes leave no gaps,
+  // stacking offset lines to reach our thickness
   void plotValue(TFT_eSPI &gfx, int x, int y, int prevX, int prevY, uint32_t color) {
-    if (prevY < 0 || prevX < 0) {
-      gfx.drawPixel(x, y, color);
-    } else {
-      gfx.drawLine(prevX, prevY, x, y, color);
+    auto thick = max(2, px(shot_graph_line));
+    for (int t = 0; t < thick; t++) {
+      auto dy = t - thick / 2;
+      if (prevY < 0 || prevX < 0) {
+        gfx.drawPixel(x, y + dy, color);
+      } else {
+        gfx.drawLine(prevX, prevY + dy, x, y + dy, color);
+      }
     }
   }
 

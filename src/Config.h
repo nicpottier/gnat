@@ -14,6 +14,7 @@ static const char* shot_margin_key = "shot_margin";
 static const char* shot_target_key = "shot_target";
 static const char* orientation_key = "orientation";
 static const char* flush_seconds_key = "flush_seconds";
+static const char* require_scale_key = "require_scale";
 static const char* profile_key = "profile";
 static const char* enabled_key = "enabled";
 static const char* error_key = "error";
@@ -64,6 +65,11 @@ static const int finer_direction_left = 1;
 static const int finer_direction_right = 2;
 static const int default_finer_direction = finer_direction_right;
 
+// whether shots are stopped when no scale is connected
+static const int require_scale_off = 1;
+static const int require_scale_on = 2;
+static const int default_require_scale = require_scale_on;
+
 // room for up to this many bytes of enabled profile mask (128 profiles)
 static const int max_profile_mask_bytes = 16;
 
@@ -90,6 +96,7 @@ class Config {
         m_shotTarget{default_shot_target},
         m_orientation{default_orientation},
         m_flushSeconds{default_flush_seconds},
+        m_requireScale{default_require_scale},
         m_profile{profile_default},
         m_error(ConfigError::none) {
     resetEnabled();
@@ -106,13 +113,14 @@ class Config {
     auto shotTarget = getUnsignedInt(query, shot_target_key);
     auto orientation = getUnsignedInt(query, orientation_key);
     auto flushSeconds = getUnsignedInt(query, flush_seconds_key);
+    auto requireScale = getUnsignedInt(query, require_scale_key);
     auto profile = getUnsignedInt(query, profile_key);
 
     char enabled[max_profile_mask_bytes * 2 + 1] = "";
     getStringValue(query, enabled_key, enabled, sizeof(enabled));
 
     return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, shotTarget, orientation,
-                  flushSeconds, profile, enabled);
+                  flushSeconds, requireScale, profile, enabled);
   }
 
   static Config fromRequest(AsyncWebServerRequest* request) {
@@ -171,6 +179,12 @@ class Config {
       flushSeconds = parseUnsignedInt(param->value().c_str());
     }
 
+    int requireScale = 0;
+    param = request->getParam(require_scale_key, true, false);
+    if (param) {
+      requireScale = parseUnsignedInt(param->value().c_str());
+    }
+
     const char* enabled = "";
     param = request->getParam(enabled_key, true, false);
     if (param) {
@@ -178,7 +192,7 @@ class Config {
     }
 
     return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, shotTarget, orientation,
-                  flushSeconds, 0, enabled);
+                  flushSeconds, requireScale, 0, enabled);
   }
 
   // returns a url encoded version of the config, suitable for writing to EEProm
@@ -219,6 +233,10 @@ class Config {
     if (m_flushSeconds != 0) {
       size -= strlen(field);
       field += snprintf(field, size, "%s=%d&", flush_seconds_key, m_flushSeconds);
+    }
+    if (m_requireScale != 0) {
+      size -= strlen(field);
+      field += snprintf(field, size, "%s=%d&", require_scale_key, m_requireScale);
     }
     if (m_profile != 0) {
       size -= strlen(field);
@@ -363,6 +381,23 @@ class Config {
     m_version = millis();
   }
 
+  // whether shots should be stopped when no scale is connected
+  bool requireScale() {
+    return m_requireScale != require_scale_off;
+  }
+
+  int getRequireScale() {
+    return m_requireScale;
+  }
+
+  void setRequireScale(int requireScale) {
+    if (requireScale < require_scale_off || requireScale > require_scale_on) {
+      return;
+    }
+    m_requireScale = requireScale;
+    m_version = millis();
+  }
+
   // how long the machine should run a flush for
   int getFlushSeconds() {
     return m_flushSeconds;
@@ -445,7 +480,7 @@ class Config {
 
  private:
   Config(int sleepTime, int stopAtWeight, int refillLevel, int warnLevel, int finerDirection, int shotMargin,
-         int shotTarget, int orientation, int flushSeconds, int profile, const char* enabled)
+         int shotTarget, int orientation, int flushSeconds, int requireScale, int profile, const char* enabled)
       : m_sleepTime{sleepTime},
         m_stopWeight{stopAtWeight},
         m_refillLevel{refillLevel},
@@ -455,6 +490,7 @@ class Config {
         m_shotTarget{shotTarget},
         m_orientation{orientation},
         m_flushSeconds{flushSeconds},
+        m_requireScale{requireScale},
         m_profile{profile},
         m_error{ConfigError::none} {
     setEnabledFromHex(enabled);
@@ -502,6 +538,10 @@ class Config {
 
     if (m_orientation < orientation_normal || m_orientation > orientation_flipped) {
       m_orientation = default_orientation;
+    }
+
+    if (m_requireScale < require_scale_off || m_requireScale > require_scale_on) {
+      m_requireScale = default_require_scale;
     }
 
     if (m_flushSeconds == 0) {
@@ -694,6 +734,9 @@ class Config {
 
   // how long the machine should run a flush for, in seconds
   int m_flushSeconds;
+
+  // whether shots are stopped when no scale is connected
+  int m_requireScale;
 
   // the selected profile, 1-based index into the compiled in profiles
   int m_profile;

@@ -47,6 +47,11 @@ class FeedbackBanner : public Widget {
       snprintf(buffer, 16, "%dmm left", m_waterLevel);
       bg = theme.water_color;
       fg = TFT_WHITE;
+    } else if (m_feedback == FeedbackType::no_scale) {
+      msg = "Connect Scale";
+      snprintf(buffer, 16, "shot stopped");
+      bg = theme.error_color;
+      fg = TFT_WHITE;
     } else if (m_feedback == FeedbackType::nailed_it) {
       msg = "Nailed it!";
       snprintf(buffer, 16, "%0.1fs shot", m_feedbackSeconds);
@@ -68,6 +73,8 @@ class FeedbackBanner : public Widget {
 
     if (m_feedback == FeedbackType::add_water) {
       drawDrop(tft, m_width / 2, iconCy, fg, bg);
+    } else if (m_feedback == FeedbackType::no_scale) {
+      drawDismiss(tft, m_width / 2, iconCy, px(15), fg, bg);
     } else if (m_feedback == FeedbackType::nailed_it) {
       drawCheck(tft, m_width / 2, iconCy, fg);
     } else {

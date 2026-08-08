@@ -43,6 +43,7 @@ int g_touchLastY = 0;
 #include <widget/ConnectInstructions.h>
 #include <widget/FeedbackBanner.h>
 #include <widget/MachineStatus.h>
+#include <widget/PourScreen.h>
 #include <widget/ProfileName.h>
 #include <widget/ScaleStatus.h>
 #include <widget/ShotGraph.h>
@@ -92,6 +93,7 @@ static Screen* s_configScreen;
 static Screen* s_feedbackScreen;
 static Screen* s_adjustScreen;
 static Screen* s_splashScreen;
+static Screen* s_pourScreen;
 
 const int BACKLIGHT_PWM_FREQ = 10000;
 const int BACKLIGHT_PWM_RESOLUTION = 8;
@@ -459,11 +461,11 @@ void setup() {
 
   s_brewScreen = new Screen{ScreenID::brew};
   s_brewScreen->addWidget(new widget::BrewBackground{screenWidth, screenHeight});
-  s_brewScreen->addWidget(new widget::ScaleStatus{px(5), px(7), px(80)});
-  s_brewScreen->addWidget(new widget::MachineStatus{screenWidth / 3 + px(5), px(7), px(80)});
-  s_brewScreen->addWidget(new widget::ShotTimer{(screenWidth / 3) * 2 + px(5), px(7), px(80)});
-  s_brewScreen->addWidget(new widget::ShotGraph{px(5), px(40), screenWidth - px(30), screenHeight - px(57)});
-  s_brewScreen->addWidget(new widget::WaterLevel{screenWidth - px(18), px(42), px(10), screenHeight - px(49)});
+  s_brewScreen->addWidget(new widget::ScaleStatus{px(5), px(4), px(80)});
+  s_brewScreen->addWidget(new widget::MachineStatus{screenWidth / 3 + px(5), px(4), px(80)});
+  s_brewScreen->addWidget(new widget::ShotTimer{(screenWidth / 3) * 2 + px(5), px(4), px(70)});
+  s_brewScreen->addWidget(new widget::ShotGraph{px(5), px(28), screenWidth - px(30), screenHeight - px(45)});
+  s_brewScreen->addWidget(new widget::WaterLevel{screenWidth - px(18), px(3), px(10), screenHeight - px(6)});
   s_brewScreen->addWidget(new widget::ProfileName{px(8), screenHeight - px(14), screenWidth - px(34)});
 
   s_connectScreen = new Screen{ScreenID::connect};
@@ -481,6 +483,9 @@ void setup() {
 
   s_splashScreen = new Screen{ScreenID::splash};
   s_splashScreen->addWidget(new widget::Splash{screenWidth, screenHeight});
+
+  s_pourScreen = new Screen{ScreenID::pour};
+  s_pourScreen->addWidget(new widget::PourScreen{screenWidth, screenHeight});
 
   /** *Optional* Sets the filtering mode used by the scanner in the BLE
    * controller.
@@ -656,6 +661,7 @@ void loop() {
       painted |= s_feedbackScreen->tickAndPaint(g_ctx, gfx);
       painted |= s_adjustScreen->tickAndPaint(g_ctx, gfx);
       painted |= s_splashScreen->tickAndPaint(g_ctx, gfx);
+      painted |= s_pourScreen->tickAndPaint(g_ctx, gfx);
 
 #ifdef DISPLAY_RM67162
       // push our frame to the panel when anything changed
@@ -729,6 +735,22 @@ void loop() {
         }
       }
 
+      // without a scale we can't stop at weight, refuse to run the shot,
+      // stopping the machine and telling the user why
+      if (g_ctx.config.requireScale() && g_ctx.machineState == MachineState::espresso &&
+          g_ctx.getScaleBLEState() != BLEState::connected) {
+        if (g_ctx.tickID - lastStop > CMD_TIMEOUT) {
+          auto stop = cmd::CommandRequest::newStopMachineCommand();
+          xQueueSend(cmdQ, &stop, 10);
+          lastStop = g_ctx.tickID;
+
+          g_ctx.feedback = FeedbackType::no_scale;
+          if (g_ctx.screen == ScreenID::brew || g_ctx.screen == ScreenID::pour || g_ctx.screen == ScreenID::adjust) {
+            g_ctx.screen = ScreenID::feedback;
+          }
+        }
+      }
+
       // track how long we pour so we can give grind feedback after the shot
       if (g_ctx.machineState == MachineState::espresso && g_ctx.machineSubstate == MachineSubstate::pouring &&
           lastSubstate != MachineSubstate::pouring) {
@@ -752,7 +774,8 @@ void loop() {
         }
 
         // take over the screen with our banner when we have feedback
-        if (g_ctx.feedback != FeedbackType::none && g_ctx.screen == ScreenID::brew) {
+        if (g_ctx.feedback != FeedbackType::none &&
+            (g_ctx.screen == ScreenID::brew || g_ctx.screen == ScreenID::pour)) {
           g_ctx.screen = ScreenID::feedback;
         }
         pourStart = 0;
@@ -783,7 +806,8 @@ void loop() {
       // suggest adding water when we are at rest in the warning zone
       if (g_ctx.machineState == MachineState::idle && g_ctx.waterLevel > 0 &&
           g_ctx.waterLevel <= g_ctx.config.getWarnLevel() && !waterWarnDismissed &&
-          g_ctx.feedback == FeedbackType::none && g_ctx.screen == ScreenID::brew) {
+          g_ctx.feedback == FeedbackType::none &&
+          (g_ctx.screen == ScreenID::brew || g_ctx.screen == ScreenID::pour)) {
         g_ctx.feedback = FeedbackType::add_water;
         g_ctx.screen = ScreenID::feedback;
       }
@@ -874,7 +898,7 @@ void loop() {
           // horizontal swipe, left moves forward through the adjust pages,
           // right moves back, wrapping to the brew screen at either end
           if (dx < 0) {
-            if (g_ctx.screen == ScreenID::brew) {
+            if (g_ctx.screen == ScreenID::brew || g_ctx.screen == ScreenID::pour) {
               g_ctx.adjustPage = 0;
               g_ctx.screen = ScreenID::adjust;
             } else if (g_ctx.screen == ScreenID::adjust) {
@@ -883,7 +907,7 @@ void loop() {
               }
             }
           } else {
-            if (g_ctx.screen == ScreenID::brew) {
+            if (g_ctx.screen == ScreenID::brew || g_ctx.screen == ScreenID::pour) {
               g_ctx.adjustPage = widget::adjust_page_count - 1;
               g_ctx.screen = ScreenID::adjust;
             } else if (g_ctx.screen == ScreenID::adjust) {
@@ -895,8 +919,12 @@ void loop() {
             }
           }
         } else if (abs(dx) < px(15) && abs(dy) < px(15)) {
-          // a tap
-          if (g_ctx.screen == ScreenID::adjust && g_ctx.adjustPage < widget::adjust_page_count) {
+          // a tap toggles between the two brew screens
+          if (g_ctx.screen == ScreenID::brew) {
+            g_ctx.screen = ScreenID::pour;
+          } else if (g_ctx.screen == ScreenID::pour) {
+            g_ctx.screen = ScreenID::brew;
+          } else if (g_ctx.screen == ScreenID::adjust && g_ctx.adjustPage < widget::adjust_page_count) {
             auto& page = widget::adjust_pages[g_ctx.adjustPage];
 
             // the profile page cycles through the enabled profiles
@@ -1000,7 +1028,7 @@ void loop() {
       // are safe to call regardless of current AP state
       if (g_ctx.screen == ScreenID::connect || g_ctx.screen == ScreenID::config) {
         startAP();
-      } else if (g_ctx.screen == ScreenID::brew) {
+      } else if (g_ctx.screen == ScreenID::brew || g_ctx.screen == ScreenID::pour) {
         stopAP();
       }
 
