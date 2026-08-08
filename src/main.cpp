@@ -121,6 +121,19 @@ void backlightOff() {
 
 auto g_ctx = data::Context{};
 
+// a shot log we serve at /shots so stops can be audited without a computer
+struct ShotLogEntry {
+  int seq;
+  double target;
+  double stopAt;
+  double rate;
+  double settled;
+  int lagTenths;
+};
+const int SHOT_LOG_SIZE = 32;
+ShotLogEntry g_shotLog[SHOT_LOG_SIZE];
+int g_shotLogCount = 0;
+
 class BLEAdCallback : public NimBLEAdvertisedDeviceCallbacks {
   void onResult(NimBLEAdvertisedDevice* d) {
     Serial.printf("[%d][BLE] new ble ad: %s \n", xPortGetCoreID(), d->toString().c_str());
@@ -234,11 +247,11 @@ class CaptiveRequestHandler : public AsyncWebHandler {
   }
 
   void sendConfigRedirect(AsyncWebServerRequest* request, Config config, const char* msg) {
-    char query[255];
-    config.toURLQuery(query, 255);
+    char query[600];
+    config.toURLQuery(query, 600);
 
-    char url[500];
-    snprintf(url, 500, "/config?%s&msg=%s", query, msg);
+    char url[900];
+    snprintf(url, 900, "/config?%s&msg=%s", query, msg);
     request->redirect(url);
   }
 
@@ -266,6 +279,28 @@ class CaptiveRequestHandler : public AsyncWebHandler {
       request->send(response);
     }
 
+    else if (strstr(url, "/shots") == url) {
+      // the shot log: how each stop was decided and where the shot landed,
+      // newest first, so stop lag tuning can be audited from a phone
+      auto res = request->beginResponseStream("text/html");
+      res->print(
+          "<!doctype html><html><head><meta name=viewport content='width=device-width, initial-scale=1'>"
+          "<title>GNAT Shots</title></head><body style='font-family:sans-serif'>");
+      res->printf("<h3>Shots &mdash; stop lag %0.1fs</h3>", g_ctx.config.stopLagSeconds());
+      res->print(
+          "<table border=1 cellpadding=6 cellspacing=0>"
+          "<tr><th>#</th><th>Target g</th><th>Stopped at g</th><th>Rate g/s</th><th>Settled g</th>"
+          "<th>Lag used s</th></tr>");
+      auto count = min(g_shotLogCount, SHOT_LOG_SIZE);
+      for (int i = 0; i < count; i++) {
+        auto& e = g_shotLog[(g_shotLogCount - 1 - i) % SHOT_LOG_SIZE];
+        res->printf("<tr><td>%d</td><td>%0.0f</td><td>%0.1f</td><td>%0.2f</td><td>%0.1f</td><td>%0.1f</td></tr>",
+                    e.seq, e.target, e.stopAt, e.rate, e.settled, e.lagTenths / 10.0);
+      }
+      res->print("</table><p>Log resets on reboot.</p></body></html>");
+      request->send(res);
+    }
+
     else if (strstr(url, "/profiles.json") == url) {
       auto response = request->beginResponse_P(200, "application/json", profiles_json);
       response->addHeader("Cache-Control", "no-store");
@@ -276,8 +311,10 @@ class CaptiveRequestHandler : public AsyncWebHandler {
       if (request->method() == HTTP_POST) {
         auto newConfig = Config::fromRequest(request);
 
-        // the web form doesn't manage the profile, carry ours over
+        // the web form doesn't manage the profile or learned stop lag,
+        // carry ours over
         newConfig.setProfile(g_ctx.config.getProfile());
+        newConfig.setStopLag(g_ctx.config.getStopLag());
 
         // no errors? save our new config
         if (newConfig.getError() == ConfigError::none) {
@@ -616,9 +653,14 @@ const unsigned long CMD_TIMEOUT = 2000 / TICK_TARGET;
 // how long a profile selection needs to settle before we persist and upload it
 const unsigned long PROFILE_SETTLE_TICKS = 3000 / TICK_TARGET;
 
-// how far ahead we project the scale weight when deciding to stop a shot,
-// covering BLE latency, the machine's stop lag and drip through the puck
-const double STOP_LAG_SECONDS = 1.0;
+// the stop lag (how far the predictive stop leads the scale) lives in config
+// and tunes itself: after this many settled shots we nudge the lag from the
+// batch and start collecting again, slow on purpose to avoid overfitting
+const int LAG_BATCH = 5;
+
+// how long after a pour ends before we read the settled weight
+const unsigned long SETTLE_DELAY_TICKS = 5000 / TICK_TARGET;
+
 
 // how long in millis the splash screen shows on boot and wake, long enough
 // for the pour animation plus a beat of hold
@@ -650,6 +692,18 @@ void loop() {
   double weightRate = 0;
   double weightRateWeight = 0;
   unsigned long weightRateMs = 0;
+
+  // details of the stop we issued this pour, for lag tuning and the shot log
+  bool stopIssued = false;
+  double stopAtWeight = 0;
+  double stopAtRate = 0;
+  int stopLagUsed = 0;
+
+  // pending settled weight measurement and the batch of implied lags
+  unsigned long settleTick = 0;
+  double settleTarget = 0;
+  double lagSamples[LAG_BATCH];
+  int lagSampleCount = 0;
 
   while (true) {
     while (xQueueReceive(updateQ, (void*)&d, 0) == pdTRUE) {
@@ -771,6 +825,13 @@ void loop() {
         // log where the shot landed against the target for stop lag tuning
         Serial.printf("[SHOT] final weight %0.1f target %d\n", g_ctx.currentWeight, g_ctx.config.getStopWeight());
 
+        // if we stopped this pour, come back for the settled weight once the
+        // drip finishes
+        if (stopIssued) {
+          settleTick = g_ctx.tickID;
+          settleTarget = double(g_ctx.config.getStopWeight());
+        }
+
         auto seconds = (millis() - pourStart) / (double)1000;
         g_ctx.feedbackSeconds = seconds;
         auto target = (double)g_ctx.config.getShotTarget();
@@ -850,18 +911,73 @@ void loop() {
         weightRateWeight = g_ctx.currentWeight;
       }
 
+      // a fresh pour clears the last stop record and any pending settle
+      if (g_ctx.machineSubstate == MachineSubstate::pouring && lastSubstate != MachineSubstate::pouring) {
+        stopIssued = false;
+        settleTick = 0;
+      }
+
       // if we are brewing, stop when the projected weight reaches the target,
-      // the projection leads the actual weight by our stop lag so the drip
-      // lands the shot on the number instead of past it
+      // the projection leads the actual weight by our learned stop lag so the
+      // drip lands the shot on the number instead of past it
       if (g_ctx.machineState == MachineState::espresso && g_ctx.machineSubstate == MachineSubstate::pouring) {
         auto target = double(g_ctx.config.getStopWeight());
-        auto projected = g_ctx.currentWeight + fmax(0.0, weightRate) * STOP_LAG_SECONDS;
+        auto projected = g_ctx.currentWeight + fmax(0.0, weightRate) * g_ctx.config.stopLagSeconds();
         if ((projected >= target || g_ctx.currentWeight > target - 1) && g_ctx.tickID - lastStop > CMD_TIMEOUT) {
-          Serial.printf("[STOP] weight %0.1f rate %0.2f projected %0.1f target %0.0f\n", g_ctx.currentWeight,
-                        weightRate, projected, target);
+          Serial.printf("[STOP] weight %0.1f rate %0.2f projected %0.1f target %0.0f lag %0.1f\n", g_ctx.currentWeight,
+                        weightRate, projected, target, g_ctx.config.stopLagSeconds());
           auto stop = cmd::CommandRequest::newStopMachineCommand();
           xQueueSend(cmdQ, &stop, 10);
           lastStop = g_ctx.tickID;
+
+          if (!stopIssued) {
+            stopIssued = true;
+            stopAtWeight = g_ctx.currentWeight;
+            stopAtRate = fmax(0.0, weightRate);
+            stopLagUsed = g_ctx.config.getStopLag();
+          }
+        }
+      }
+
+      // once the settle delay passes, grade the shot: log it, and when it
+      // looks clean fold its implied lag into the tuning batch
+      if (settleTick > 0 && g_ctx.tickID - settleTick >= SETTLE_DELAY_TICKS) {
+        settleTick = 0;
+        auto settled = g_ctx.currentWeight;
+
+        auto& entry = g_shotLog[g_shotLogCount % SHOT_LOG_SIZE];
+        entry.seq = g_shotLogCount + 1;
+        entry.target = settleTarget;
+        entry.stopAt = stopAtWeight;
+        entry.rate = stopAtRate;
+        entry.settled = settled;
+        entry.lagTenths = stopLagUsed;
+        g_shotLogCount++;
+
+        // reject shots where the cup moved, the scale dropped or the pour
+        // was barely flowing, they'd swing the lag wildly
+        if (g_ctx.getScaleBLEState() == BLEState::connected && stopAtRate > 0.3 &&
+            fabs(settled - settleTarget) < 5.0) {
+          auto implied = stopLagUsed / 10.0 + (settled - settleTarget) / stopAtRate;
+          implied = fmin(fmax(implied, min_stop_lag / 10.0), max_stop_lag / 10.0);
+          lagSamples[lagSampleCount++] = implied;
+          Serial.printf("[LAG] sample %d/%d: settled %0.1f target %0.0f implied %0.2fs\n", lagSampleCount, LAG_BATCH,
+                        settled, settleTarget, implied);
+
+          // a full batch nudges the stored lag halfway to the batch mean,
+          // then we start collecting fresh
+          if (lagSampleCount >= LAG_BATCH) {
+            double mean = 0;
+            for (int i = 0; i < LAG_BATCH; i++) {
+              mean += lagSamples[i];
+            }
+            mean /= LAG_BATCH;
+            auto lag = g_ctx.config.stopLagSeconds() + (mean - g_ctx.config.stopLagSeconds()) / 2;
+            g_ctx.config.setStopLag(int(round(lag * 10)));
+            writeConfig(g_ctx.config);
+            Serial.printf("[LAG] tuned to %0.1fs from batch mean %0.2fs\n", g_ctx.config.stopLagSeconds(), mean);
+            lagSampleCount = 0;
+          }
         }
       }
 
