@@ -616,6 +616,10 @@ const unsigned long CMD_TIMEOUT = 2000 / TICK_TARGET;
 // how long a profile selection needs to settle before we persist and upload it
 const unsigned long PROFILE_SETTLE_TICKS = 3000 / TICK_TARGET;
 
+// how far ahead we project the scale weight when deciding to stop a shot,
+// covering BLE latency, the machine's stop lag and drip through the puck
+const double STOP_LAG_SECONDS = 1.0;
+
 // how long in millis the splash screen shows on boot and wake, long enough
 // for the pour animation plus a beat of hold
 const unsigned long SPLASH_TIME = 6300;
@@ -641,6 +645,11 @@ void loop() {
   auto lastFeedback = FeedbackType::none;
   bool waterWarnDismissed = false;
   auto lastFlipped = g_ctx.config.isFlipped();
+
+  // smoothed scale weight rate in g/s while a shot runs, for predictive stop
+  double weightRate = 0;
+  double weightRateWeight = 0;
+  unsigned long weightRateMs = 0;
 
   while (true) {
     while (xQueueReceive(updateQ, (void*)&d, 0) == pdTRUE) {
@@ -759,6 +768,9 @@ void loop() {
 
       if (lastSubstate == MachineSubstate::pouring && g_ctx.machineSubstate != MachineSubstate::pouring &&
           pourStart > 0) {
+        // log where the shot landed against the target for stop lag tuning
+        Serial.printf("[SHOT] final weight %0.1f target %d\n", g_ctx.currentWeight, g_ctx.config.getStopWeight());
+
         auto seconds = (millis() - pourStart) / (double)1000;
         g_ctx.feedbackSeconds = seconds;
         auto target = (double)g_ctx.config.getShotTarget();
@@ -823,10 +835,30 @@ void loop() {
         }
       }
 
-      // if we are brewing and we are over 36grams, stop
-      if (g_ctx.machineState == MachineState::espresso && g_ctx.machineSubstate == MachineSubstate::pouring &&
-          g_ctx.currentWeight > g_ctx.config.getStopWeight() - 1) {
-        if (g_ctx.tickID - lastStop > CMD_TIMEOUT) {
+      // track how fast the cup is filling, smoothed, so we can stop early
+      // enough for the shot to land on target
+      if (g_ctx.machineState != MachineState::espresso) {
+        weightRate = 0;
+        weightRateMs = 0;
+      } else if (millis() - weightRateMs >= 100) {
+        if (weightRateMs > 0) {
+          auto dt = (millis() - weightRateMs) / 1000.0;
+          auto inst = (g_ctx.currentWeight - weightRateWeight) / dt;
+          weightRate = weightRate * 0.7 + inst * 0.3;
+        }
+        weightRateMs = millis();
+        weightRateWeight = g_ctx.currentWeight;
+      }
+
+      // if we are brewing, stop when the projected weight reaches the target,
+      // the projection leads the actual weight by our stop lag so the drip
+      // lands the shot on the number instead of past it
+      if (g_ctx.machineState == MachineState::espresso && g_ctx.machineSubstate == MachineSubstate::pouring) {
+        auto target = double(g_ctx.config.getStopWeight());
+        auto projected = g_ctx.currentWeight + fmax(0.0, weightRate) * STOP_LAG_SECONDS;
+        if ((projected >= target || g_ctx.currentWeight > target - 1) && g_ctx.tickID - lastStop > CMD_TIMEOUT) {
+          Serial.printf("[STOP] weight %0.1f rate %0.2f projected %0.1f target %0.0f\n", g_ctx.currentWeight,
+                        weightRate, projected, target);
           auto stop = cmd::CommandRequest::newStopMachineCommand();
           xQueueSend(cmdQ, &stop, 10);
           lastStop = g_ctx.tickID;
