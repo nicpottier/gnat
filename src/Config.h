@@ -89,8 +89,9 @@ static const int default_water_temp = 85;
 static const int max_water_temp = 100;
 static const int min_water_temp = 50;
 
+// volumes above 250 pour in rounds, the machine's field is a single byte
 static const int default_water_vol = 120;
-static const int max_water_vol = 250;
+static const int max_water_vol = 500;
 static const int min_water_vol = 20;
 
 // how temperatures are displayed, values are always stored metric

@@ -112,7 +112,7 @@ class DE1 : public Device, public Machine {
 
   bool setShotSettings(int steamTemp, int steamSeconds, int waterTemp, int waterVol) {
     if (steamTemp < 0 || steamTemp > 170 || steamSeconds < 0 || steamSeconds > 255 || waterTemp < 0 ||
-        waterTemp > 100 || waterVol < 0 || waterVol > 255) {
+        waterTemp > 100 || waterVol < 0 || waterVol > 500) {
       return false;
     }
     m_steamTemp = steamTemp;
@@ -360,7 +360,13 @@ class DE1 : public Device, public Machine {
     packet[1] = m_steamTemp;
     packet[2] = m_steamSeconds;
     packet[3] = m_waterTemp;
-    packet[4] = m_waterVol;
+    // the volume field is a single byte, oversized settings split into even
+    // rounds under the cap, one hot water press each
+    auto vol = m_waterVol;
+    if (vol > 250) {
+      vol = m_waterVol / ((m_waterVol + 249) / 250);
+    }
+    packet[4] = vol;
     packet[5] = de1_hot_water_length_s;
     return m_settingsChar->writeValue(packet, sizeof(packet), true);
   }

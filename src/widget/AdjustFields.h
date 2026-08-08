@@ -93,11 +93,12 @@ static const HotWaterPreset hot_water_teas[] = {
 };
 static const int hot_water_tea_count = sizeof(hot_water_teas) / sizeof(hot_water_teas[0]);
 
+// the machine's volume field is a single byte, bigger presets pour in 250ml
+// rounds, one press of the hot water button each
+static const int hot_water_pour_max = 250;
+
 static const HotWaterPreset hot_water_sizes[] = {
-    {"Demitasse", 90},
-    {"Small Cup", 120},
-    {"Teacup", 180},
-    {"Mug", 240},
+    {"Demitasse", 90}, {"Small Cup", 120}, {"Teacup", 180}, {"Mug", 240}, {"Carafe", 500},
 };
 static const int hot_water_size_count = sizeof(hot_water_sizes) / sizeof(hot_water_sizes[0]);
 
@@ -164,8 +165,7 @@ static const AdjustPage adjust_pages[] = {
      2},
     {"Machine", TFT_WHITE, machine_page_color, machine_page_color, TFT_WHITE, TFT_WHITE, drawPower,
      machine_adjust_values, 2},
-    {"App", TFT_WHITE, app_page_color, app_page_color, TFT_WHITE, TFT_WHITE, drawSliders, app_adjust_values, 2,
-     "Flipping orientation reboots your gnat"},
+    {"App", TFT_WHITE, app_page_color, app_page_color, TFT_WHITE, TFT_WHITE, drawSliders, app_adjust_values, 2},
 };
 static const int adjust_page_count = sizeof(adjust_pages) / sizeof(adjust_pages[0]);
 
@@ -339,6 +339,16 @@ class AdjustFields : public Widget {
     char sizeLabel[32];
     snprintf(sizeLabel, 32, "%s (%d%s)", size.name, displayVol(size.value, imperial), volUnit(imperial));
     const char* labels[2] = {teaLabel, sizeLabel};
+
+    // oversized pours run the hot water button more than once
+    if (size.value > hot_water_pour_max) {
+      char note[40];
+      auto pours = (size.value + hot_water_pour_max - 1) / hot_water_pour_max;
+      snprintf(note, 40, "pours as %d x %d%s", pours, displayVol(size.value / pours, imperial), volUnit(imperial));
+      tft.setFreeFont(FONT_BODY_SM);
+      tft.setTextDatum(TC_DATUM);
+      tft.drawString(note, m_width / 2, m_height - px(18));
+    }
 
     for (int row = 0; row < 2; row++) {
       int bx, by, bw, bh;
