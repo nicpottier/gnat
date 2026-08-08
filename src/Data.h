@@ -218,6 +218,10 @@ class Context {
 
   ScreenID screen = ScreenID::brew;
 
+  // when armed the next espresso press pours hot water through the group
+  // using a temporary water profile, stopped at the target weight
+  bool waterPourArmed = false;
+
   // which adjust page is showing when on the adjust screen
   int adjustPage = 0;
 

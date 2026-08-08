@@ -116,12 +116,13 @@ inline int hotWaterNearest(const HotWaterPreset* presets, int count, int value) 
   return best;
 }
 
-// the full width toggle rows on the hot water page, shared with hit testing
+// the full width toggle rows on the hot water page, shared with hit
+// testing: tea temp, cup size, then the pour from group action
 inline void adjustHotWaterRect(int width, int row, int& x, int& y, int& w, int& h) {
   x = px(10);
-  y = px(40 + row * 36);
+  y = px(38 + row * 32);
   w = width - px(20);
-  h = px(32);
+  h = px(28);
 }
 
 static const AdjustValue machine_adjust_values[] = {
@@ -234,12 +235,15 @@ class AdjustFields : public Widget {
   bool tick(data::Context ctx, unsigned long tickID, unsigned long millis) {
     bool changed = false;
 
-    // fill progress on the hot water page while pouring
-    auto hotWater = ctx.machineState == MachineState::hot_water;
+    // fill progress and arming state on the hot water page
+    auto pouring = ctx.machineState == MachineState::hot_water ||
+                   (ctx.waterPourArmed && ctx.machineState == MachineState::espresso);
     auto scaleConnected = ctx.getScaleBLEState() == BLEState::connected;
     auto weight = int(ctx.currentWeight);
-    if (hotWater != m_hotWater || scaleConnected != m_scaleConnected || (hotWater && weight != m_weight)) {
-      m_hotWater = hotWater;
+    if (pouring != m_pouring || ctx.waterPourArmed != m_armed || scaleConnected != m_scaleConnected ||
+        (pouring && weight != m_weight)) {
+      m_pouring = pouring;
+      m_armed = ctx.waterPourArmed;
       m_scaleConnected = scaleConnected;
       m_weight = weight;
       changed = true;
@@ -345,8 +349,8 @@ class AdjustFields : public Widget {
   }
 
  private:
-  // the hot water page: two full width toggles, tea temperature presets and
-  // cup sizes, showing whatever the config currently holds
+  // the hot water page: tea temperature and cup size toggles over the pour
+  // from group action, which reads as live progress while water is running
   void paintHotWater(TFT_eSPI& tft, const AdjustPage& page) {
     auto imperial = m_config.isImperial();
     auto& tea = hot_water_teas[hotWaterNearest(hot_water_teas, hot_water_tea_count, m_config.getWaterTemp())];
@@ -356,18 +360,18 @@ class AdjustFields : public Widget {
     snprintf(teaLabel, 48, "%s (%d%s)", tea.name, displayTemp(tea.value, imperial), tempUnit(imperial));
     char sizeLabel[32];
     snprintf(sizeLabel, 32, "%s (%d%s)", size.name, displayVol(size.value, imperial), volUnit(imperial));
-    const char* labels[2] = {teaLabel, sizeLabel};
 
-    // while filling with a scale connected, show progress toward the target
-    if (m_hotWater && m_scaleConnected) {
-      char note[24];
-      snprintf(note, 24, "%d / %dg", m_weight, m_config.getWaterVol());
-      tft.setFreeFont(FONT_BODY_SM);
-      tft.setTextDatum(TC_DATUM);
-      tft.drawString(note, m_width / 2, m_height - px(16));
+    char action[24];
+    if (m_pouring && m_scaleConnected) {
+      snprintf(action, 24, "%d / %dg", m_weight, m_config.getWaterVol());
+    } else if (m_armed) {
+      snprintf(action, 24, "Press Espresso");
+    } else {
+      snprintf(action, 24, "Pour from Group");
     }
+    const char* labels[3] = {teaLabel, sizeLabel, action};
 
-    for (int row = 0; row < 2; row++) {
+    for (int row = 0; row < 3; row++) {
       int bx, by, bw, bh;
       adjustHotWaterRect(m_width, row, bx, by, bw, bh);
       tft.fillRoundRect(bx, by, bw, bh, px(8), page.buttonColor);
@@ -438,7 +442,8 @@ class AdjustFields : public Widget {
   int m_height;
 
   // live fill state for the hot water page
-  bool m_hotWater = false;
+  bool m_pouring = false;
+  bool m_armed = false;
   bool m_scaleConnected = false;
   int m_weight = 0;
 };

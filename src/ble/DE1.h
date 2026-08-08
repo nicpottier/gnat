@@ -127,6 +127,28 @@ class DE1 : public Device, public Machine {
     return true;
   }
 
+  // uploads a temporary water profile: one flow controlled frame at the
+  // given mix temp, no pressure limit, long enough to cover the volume with
+  // margin so the frame itself backstops a missing scale. the regular
+  // profile should be re-uploaded via setProfile once the pour is done
+  bool pourWater(int temp, int vol) {
+    if (!m_headerChar || !m_frameChar || temp < 1 || temp > 100 || vol < 1 || vol > 500) {
+      return false;
+    }
+
+    // one frame, no preinfuse, no minimum pressure, max flow 10 ml/s
+    uint8_t header[5] = {1, 1, 0, 0, 0xA0};
+    if (!m_headerChar->writeValue(header, sizeof(header), true)) {
+      return false;
+    }
+
+    // flow control (CtrlF) at the mix temp (TMixTemp) ignoring the pressure
+    // limit (IgnoreLimit), 6 ml/s, frame length covers the volume plus slack
+    uint8_t secs = min(120, vol / 6 + 15);
+    uint8_t frame[8] = {0, 0x51, 6 * 16, uint8_t(temp * 2), uint8_t(0x80 | secs), 0, 0, 0};
+    return m_frameChar->writeValue(frame, sizeof(frame), true);
+  }
+
   void stateUpdate(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* d, size_t length, bool isNotify) {
     int state = d[0];
     int subState = d[1];
