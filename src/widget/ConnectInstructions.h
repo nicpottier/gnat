@@ -1,8 +1,8 @@
 #pragma once
 
+#include <widget/Logo.h>
 #include <widget/Theme.h>
 #include <widget/Widget.h>
-#include <widget/splash_sprite.h>
 
 namespace widget {
 class ConnectInstructions : public Widget {
@@ -29,14 +29,7 @@ class ConnectInstructions : public Widget {
     tft.drawString("Connect to", centerX, m_height / 2 - px(50));
 
     // TODO: investigate replacing with drawBitmap which would be way smaller
-    // pushImage isn't virtual, when rendering into a framebuffer sprite we have
-    // to call the sprite's version so it doesn't touch the (unused) tft bus
-#ifdef DISPLAY_RM67162
-    ((TFT_eSprite&)tft).pushImage((m_width - 159) / 2, (m_height - 55) / 2, splash_sprite_width, splash_sprite_height,
-                                  (uint16_t*)splash_sprite);
-#else
-    tft.pushImage((m_width - 159) / 2, (m_height - 55) / 2, splash_sprite_width, splash_sprite_height, splash_sprite);
-#endif
+    drawLogo(tft, (m_width - splash_sprite_width) / 2, (m_height - splash_sprite_height) / 2, 1);
 
     tft.drawString("WIFI AP to configure", centerX, m_height / 2 + px(35));
 

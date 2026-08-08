@@ -15,7 +15,7 @@ enum class UpdateType : uint8_t {
   profile_cycle_update,
 };
 
-enum class ScreenID : uint8_t { unknown, brew, connect, config, feedback, adjust };
+enum class ScreenID : uint8_t { unknown, brew, connect, config, feedback, adjust, splash };
 
 // full screen feedback we show the user, dismissed with the profile button
 enum class FeedbackType : uint8_t { none, grind_finer, grind_coarser, nailed_it, add_water };
