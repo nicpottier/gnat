@@ -3,7 +3,7 @@
 #include <ESPAsyncWebServer.h>
 #include <profiles.h>
 
-#define EEPROM_SIZE 256
+#define EEPROM_SIZE 1024
 
 static const char* stop_weight_key = "stop_weight";
 static const char* sleep_time_key = "sleep_time";
@@ -15,8 +15,8 @@ static const char* shot_target_key = "shot_target";
 static const char* orientation_key = "orientation";
 static const char* flush_seconds_key = "flush_seconds";
 static const char* require_scale_key = "require_scale";
-// note: the whole config query string must fit the one byte EEPROM length
-// prefix, keep new keys short
+static const char* stop_lag_key = "lag";
+static const char* lag_samples_key = "lagn";
 static const char* steam_temp_key = "steam_t";
 static const char* steam_seconds_key = "steam_s";
 static const char* water_temp_key = "water_t";
@@ -77,6 +77,16 @@ static const int require_scale_off = 1;
 static const int require_scale_on = 2;
 static const int default_require_scale = require_scale_on;
 
+// how far ahead the predictive stop leads the scale, in tenths of a second,
+// tuned automatically from settled shot weights
+static const int default_stop_lag = 10;
+static const int max_stop_lag = 30;
+static const int min_stop_lag = 2;
+
+// how many tuning samples have been folded into the stop lag, drives the
+// adaptation gain down as experience accumulates
+static const int max_lag_samples = 999;
+
 static const int default_steam_temp = 150;
 static const int max_steam_temp = 170;
 static const int min_steam_temp = 120;
@@ -126,6 +136,8 @@ class Config {
         m_orientation{default_orientation},
         m_flushSeconds{default_flush_seconds},
         m_requireScale{default_require_scale},
+        m_stopLag{default_stop_lag},
+        m_lagSamples{0},
         m_steamTemp{default_steam_temp},
         m_steamSeconds{default_steam_seconds},
         m_waterTemp{default_water_temp},
@@ -148,6 +160,8 @@ class Config {
     auto orientation = getUnsignedInt(query, orientation_key);
     auto flushSeconds = getUnsignedInt(query, flush_seconds_key);
     auto requireScale = getUnsignedInt(query, require_scale_key);
+    auto stopLag = getUnsignedInt(query, stop_lag_key);
+    auto lagSamples = getUnsignedInt(query, lag_samples_key);
     auto steamTemp = getUnsignedInt(query, steam_temp_key);
     auto steamSeconds = getUnsignedInt(query, steam_seconds_key);
     auto waterTemp = getUnsignedInt(query, water_temp_key);
@@ -159,7 +173,8 @@ class Config {
     getStringValue(query, enabled_key, enabled, sizeof(enabled));
 
     return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, shotTarget, orientation,
-                  flushSeconds, requireScale, steamTemp, steamSeconds, waterTemp, waterVol, units, profile, enabled);
+                  flushSeconds, requireScale, stopLag, lagSamples, steamTemp, steamSeconds, waterTemp, waterVol,
+                  units, profile, enabled);
   }
 
   static Config fromRequest(AsyncWebServerRequest* request) {
@@ -260,8 +275,10 @@ class Config {
       enabled = param->value().c_str();
     }
 
+    // the web form doesn't carry the learned stop lag or its sample count,
+    // callers copy those over
     return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, shotTarget, orientation,
-                  flushSeconds, requireScale, steamTemp, steamSeconds, waterTemp, waterVol, units, 0, enabled);
+                  flushSeconds, requireScale, 0, 0, steamTemp, steamSeconds, waterTemp, waterVol, units, 0, enabled);
   }
 
   // returns a url encoded version of the config, suitable for writing to EEProm
@@ -306,6 +323,14 @@ class Config {
     if (m_requireScale != 0) {
       size -= strlen(field);
       field += snprintf(field, size, "%s=%d&", require_scale_key, m_requireScale);
+    }
+    if (m_stopLag != 0) {
+      size -= strlen(field);
+      field += snprintf(field, size, "%s=%d&", stop_lag_key, m_stopLag);
+    }
+    if (m_lagSamples != 0) {
+      size -= strlen(field);
+      field += snprintf(field, size, "%s=%d&", lag_samples_key, m_lagSamples);
     }
     if (m_steamTemp != 0) {
       size -= strlen(field);
@@ -487,6 +512,36 @@ class Config {
     m_version = millis();
   }
 
+  // the predictive stop lead, in tenths of a second
+  int getStopLag() {
+    return m_stopLag;
+  }
+
+  double stopLagSeconds() {
+    return m_stopLag / 10.0;
+  }
+
+  void setStopLag(int tenths) {
+    if (tenths < min_stop_lag || tenths > max_stop_lag) {
+      return;
+    }
+    m_stopLag = tenths;
+    m_version = millis();
+  }
+
+  // how many tuning samples the stop lag has absorbed
+  int getLagSamples() {
+    return m_lagSamples;
+  }
+
+  void setLagSamples(int samples) {
+    if (samples < 0 || samples > max_lag_samples) {
+      return;
+    }
+    m_lagSamples = samples;
+    m_version = millis();
+  }
+
   // steam temperature in C
   int getSteamTemp() {
     return m_steamTemp;
@@ -638,8 +693,8 @@ class Config {
 
  private:
   Config(int sleepTime, int stopAtWeight, int refillLevel, int warnLevel, int finerDirection, int shotMargin,
-         int shotTarget, int orientation, int flushSeconds, int requireScale, int steamTemp, int steamSeconds,
-         int waterTemp, int waterVol, int units, int profile, const char* enabled)
+         int shotTarget, int orientation, int flushSeconds, int requireScale, int stopLag, int lagSamples,
+         int steamTemp, int steamSeconds, int waterTemp, int waterVol, int units, int profile, const char* enabled)
       : m_sleepTime{sleepTime},
         m_stopWeight{stopAtWeight},
         m_refillLevel{refillLevel},
@@ -650,6 +705,8 @@ class Config {
         m_orientation{orientation},
         m_flushSeconds{flushSeconds},
         m_requireScale{requireScale},
+        m_stopLag{stopLag},
+        m_lagSamples{lagSamples},
         m_steamTemp{steamTemp},
         m_steamSeconds{steamSeconds},
         m_waterTemp{waterTemp},
@@ -706,6 +763,14 @@ class Config {
 
     if (m_requireScale < require_scale_off || m_requireScale > require_scale_on) {
       m_requireScale = default_require_scale;
+    }
+
+    if (m_stopLag < min_stop_lag || m_stopLag > max_stop_lag) {
+      m_stopLag = default_stop_lag;
+    }
+
+    if (m_lagSamples < 0 || m_lagSamples > max_lag_samples) {
+      m_lagSamples = 0;
     }
 
     if (m_steamTemp < min_steam_temp || m_steamTemp > max_steam_temp) {
@@ -922,6 +987,12 @@ class Config {
   // whether shots are stopped when no scale is connected
   int m_requireScale;
 
+  // the predictive stop lead in tenths of a second, auto tuned
+  int m_stopLag;
+
+  // how many tuning samples the lag has absorbed
+  int m_lagSamples;
+
   // steam temperature in C and how long steam runs, in seconds
   int m_steamTemp;
   int m_steamSeconds;
@@ -946,44 +1017,62 @@ class Config {
   unsigned long m_version;
 };
 
+bool writeConfig(Config config) {
+  char query[EEPROM_SIZE - 3];
+  config.toURLQuery(query, EEPROM_SIZE - 3);
+
+  // two byte little endian length, then our query string (including null)
+  uint16_t length = strlen(query);
+  EEPROM.write(0, length & 0xFF);
+  EEPROM.write(1, (length >> 8) & 0xFF);
+  EEPROM.writeString(2, query);
+
+  Serial.printf("wrote to EEPROM: %s\n", query);
+
+  return EEPROM.commit();
+}
+
 Config readConfig() {
   auto config = Config();
 
   EEPROM.begin(EEPROM_SIZE);
-  uint8_t length = EEPROM.read(0);
-  if (length < 1 || length >= EEPROM_SIZE) {
-    return config;
+
+  // two byte little endian length at 0, string from 2
+  uint16_t length = EEPROM.read(0) | (EEPROM.read(1) << 8);
+  int offset = 2;
+
+  // configs written before the two byte header had a single length byte with
+  // the string starting right behind it, the string's first character lands
+  // in our high byte and makes the length impossibly large, read those the
+  // old way and rewrite them in the new format below
+  bool legacy = false;
+  if (length < 1 || length > EEPROM_SIZE - 3) {
+    uint8_t old = EEPROM.read(0);
+    if (old < 1 || old >= 255) {
+      return config;
+    }
+    length = old;
+    offset = 1;
+    legacy = true;
   }
 
   char buffer[EEPROM_SIZE + 1];
-  auto read = EEPROM.readString(1, buffer, length);
+  auto read = EEPROM.readString(offset, buffer, length);
   buffer[read] = 0;
 
   // set our config to the parsed value
   config = Config::fromQueryString(buffer);
-  char query[EEPROM_SIZE - 2];
-  config.toURLQuery(query, EEPROM_SIZE - 2);
+  char query[EEPROM_SIZE - 3];
+  config.toURLQuery(query, EEPROM_SIZE - 3);
   Serial.printf("eeprom: %s config: %s\n", buffer, query);
 
   // if there was an error reading it, reset to default
   if (config.getError() != ConfigError::none) {
     config = Config();
+  } else if (legacy) {
+    Serial.println("migrating config to two byte length format");
+    writeConfig(config);
   }
 
   return config;
-}
-
-bool writeConfig(Config config) {
-  char query[EEPROM_SIZE - 2];
-  config.toURLQuery(query, EEPROM_SIZE - 2);
-
-  // first write our length
-  EEPROM.write(0, uint8_t(strlen(query)));
-
-  // then our query string representation (including null byte)
-  EEPROM.writeString(1, query);
-
-  Serial.printf("wrote to EEPROM: %s\n", query);
-
-  return EEPROM.commit();
 }
