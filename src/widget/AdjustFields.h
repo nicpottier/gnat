@@ -4,6 +4,7 @@
 #include <profiles.h>
 #include <widget/Icons.h>
 #include <widget/Theme.h>
+#include <widget/Units.h>
 #include <widget/Widget.h>
 
 namespace widget {
@@ -19,6 +20,9 @@ struct AdjustValue {
   int (*get)(Config&);
   void (*set)(Config&, int);
   const char* const* names;
+
+  // temperature values store celsius and display per the units setting
+  bool temp;
 };
 
 // what kind of page this is: standard value rows, the custom profile
@@ -71,7 +75,7 @@ static const AdjustValue grind_adjust_values[] = {
 
 static const AdjustValue steam_adjust_values[] = {
     {"Temp", "C", 1, min_steam_temp, max_steam_temp, [](Config& c) { return c.getSteamTemp(); },
-     [](Config& c, int v) { c.setSteamTemp(v); }},
+     [](Config& c, int v) { c.setSteamTemp(v); }, nullptr, true},
     {"Time", "s", 10, min_steam_seconds, max_steam_seconds, [](Config& c) { return c.getSteamSeconds(); },
      [](Config& c, int v) { c.setSteamSeconds(v); }},
 };
@@ -84,16 +88,13 @@ struct HotWaterPreset {
 };
 
 static const HotWaterPreset hot_water_teas[] = {
-    {"Delicate Tea (71C)", 71},  {"Green Tea (79C)", 79},    {"White Tea (85C)", 85},
-    {"Oolong Tea (91C)", 91},    {"French Press (93C)", 93}, {"Black & Herbal Teas (96C)", 96},
+    {"Delicate Tea", 71}, {"Green Tea", 79},    {"White Tea", 85},
+    {"Oolong Tea", 91},   {"French Press", 93}, {"Black & Herbal Teas", 96},
 };
 static const int hot_water_tea_count = sizeof(hot_water_teas) / sizeof(hot_water_teas[0]);
 
 static const HotWaterPreset hot_water_sizes[] = {
-    {"Demitasse (90ml)", 90},
-    {"Small Cup (120ml)", 120},
-    {"Teacup (180ml)", 180},
-    {"Mug (240ml)", 240},
+    {"Demitasse", 90}, {"Small Cup", 120}, {"Teacup", 180}, {"Mug", 240}, {"Big Mug", 250},
 };
 static const int hot_water_size_count = sizeof(hot_water_sizes) / sizeof(hot_water_sizes[0]);
 
@@ -126,9 +127,13 @@ static const AdjustValue machine_adjust_values[] = {
 
 static const char* orientation_names[] = {"Normal", "Flipped"};
 
+static const char* units_names[] = {"Metric", "Imperial"};
+
 static const AdjustValue app_adjust_values[] = {
     {"Orientation", "", 1, orientation_normal, orientation_flipped, [](Config& c) { return c.getOrientation(); },
      [](Config& c, int v) { c.setOrientation(v); }, orientation_names},
+    {"Units", "", 1, units_metric, units_imperial, [](Config& c) { return c.getUnits(); },
+     [](Config& c, int v) { c.setUnits(v); }, units_names},
 };
 
 // a coffee brown, a grind purple, a steel gray, a deep teal and a burgundy
@@ -152,11 +157,12 @@ static const AdjustPage adjust_pages[] = {
      espresso_adjust_values, 2},
     {"Grind Alerts", TFT_WHITE, grind_page_color, grind_page_color, TFT_WHITE, TFT_WHITE, drawGear,
      grind_adjust_values, 2},
-    {"Steam", TFT_WHITE, steam_page_color, steam_page_color, TFT_WHITE, TFT_WHITE, drawClock, steam_adjust_values, 2},
+    {"Steam", TFT_WHITE, steam_page_color, steam_page_color, TFT_WHITE, TFT_WHITE, drawPitcher, steam_adjust_values,
+     2},
     {"Machine", TFT_WHITE, machine_page_color, machine_page_color, TFT_WHITE, TFT_WHITE, drawPower,
      machine_adjust_values, 2},
-    {"App", TFT_WHITE, app_page_color, app_page_color, TFT_WHITE, TFT_WHITE, drawSliders, app_adjust_values, 1,
-     "Flipping orientation reboots your gnat", true},
+    {"App", TFT_WHITE, app_page_color, app_page_color, TFT_WHITE, TFT_WHITE, drawSliders, app_adjust_values, 2,
+     "Flipping orientation reboots your gnat"},
 };
 static const int adjust_page_count = sizeof(adjust_pages) / sizeof(adjust_pages[0]);
 
@@ -295,7 +301,12 @@ class AdjustFields : public Widget {
       drawButton(tft, cxMinus, cy, false, page);
 
       char buffer[16];
-      snprintf(buffer, 16, "%d%s", value.get(m_config), value.unit);
+      if (value.temp) {
+        auto imperial = m_config.isImperial();
+        snprintf(buffer, 16, "%d%s", displayTemp(value.get(m_config), imperial), tempUnit(imperial));
+      } else {
+        snprintf(buffer, 16, "%d%s", value.get(m_config), value.unit);
+      }
       tft.setFreeFont(FONT_BODY);
       tft.setTextDatum(MC_DATUM);
       tft.drawString(buffer, (cxMinus + cxPlus) / 2, cy);
@@ -316,10 +327,15 @@ class AdjustFields : public Widget {
   // the hot water page: two full width toggles, tea temperature presets and
   // cup sizes, showing whatever the config currently holds
   void paintHotWater(TFT_eSPI& tft, const AdjustPage& page) {
-    const char* labels[2] = {
-        hot_water_teas[hotWaterNearest(hot_water_teas, hot_water_tea_count, m_config.getWaterTemp())].name,
-        hot_water_sizes[hotWaterNearest(hot_water_sizes, hot_water_size_count, m_config.getWaterVol())].name,
-    };
+    auto imperial = m_config.isImperial();
+    auto& tea = hot_water_teas[hotWaterNearest(hot_water_teas, hot_water_tea_count, m_config.getWaterTemp())];
+    auto& size = hot_water_sizes[hotWaterNearest(hot_water_sizes, hot_water_size_count, m_config.getWaterVol())];
+
+    char teaLabel[48];
+    snprintf(teaLabel, 48, "%s (%d%s)", tea.name, displayTemp(tea.value, imperial), tempUnit(imperial));
+    char sizeLabel[32];
+    snprintf(sizeLabel, 32, "%s (%dml)", size.name, size.value);
+    const char* labels[2] = {teaLabel, sizeLabel};
 
     for (int row = 0; row < 2; row++) {
       int bx, by, bw, bh;

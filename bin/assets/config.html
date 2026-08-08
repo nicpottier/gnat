@@ -74,6 +74,13 @@
             <input type="number" name="water_v" id="water_v" placeholder="120" min="20" max="250" required>
             <small>How much hot water is dispensed.</small>
 
+            <label for="units">Units</label>
+            <select name="units" id="units">
+                <option value="1" selected>Metric</option>
+                <option value="2">Imperial</option>
+            </select>
+            <small>How temperatures are displayed, values are stored metric.</small>
+
             <label for="require_scale">Require Scale</label>
             <select name="require_scale" id="require_scale">
                 <option value="2" selected>Yes</option>
@@ -150,6 +157,11 @@
     const requireScale = urlParams.get("require_scale");
     if (requireScale) {
         document.getElementById("require_scale").value = requireScale;
+    }
+
+    const units = urlParams.get("units");
+    if (units) {
+        document.getElementById("units").value = units;
     }
 
     const orientation = urlParams.get("orientation");

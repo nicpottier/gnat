@@ -21,6 +21,7 @@ static const char* steam_temp_key = "steam_t";
 static const char* steam_seconds_key = "steam_s";
 static const char* water_temp_key = "water_t";
 static const char* water_vol_key = "water_v";
+static const char* units_key = "units";
 static const char* profile_key = "profile";
 static const char* enabled_key = "enabled";
 static const char* error_key = "error";
@@ -92,6 +93,11 @@ static const int default_water_vol = 120;
 static const int max_water_vol = 250;
 static const int min_water_vol = 20;
 
+// how temperatures are displayed, values are always stored metric
+static const int units_metric = 1;
+static const int units_imperial = 2;
+static const int default_units = units_metric;
+
 // room for up to this many bytes of enabled profile mask (128 profiles)
 static const int max_profile_mask_bytes = 16;
 
@@ -123,6 +129,7 @@ class Config {
         m_steamSeconds{default_steam_seconds},
         m_waterTemp{default_water_temp},
         m_waterVol{default_water_vol},
+        m_units{default_units},
         m_profile{profile_default},
         m_error(ConfigError::none) {
     resetEnabled();
@@ -144,13 +151,14 @@ class Config {
     auto steamSeconds = getUnsignedInt(query, steam_seconds_key);
     auto waterTemp = getUnsignedInt(query, water_temp_key);
     auto waterVol = getUnsignedInt(query, water_vol_key);
+    auto units = getUnsignedInt(query, units_key);
     auto profile = getUnsignedInt(query, profile_key);
 
     char enabled[max_profile_mask_bytes * 2 + 1] = "";
     getStringValue(query, enabled_key, enabled, sizeof(enabled));
 
     return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, shotTarget, orientation,
-                  flushSeconds, requireScale, steamTemp, steamSeconds, waterTemp, waterVol, profile, enabled);
+                  flushSeconds, requireScale, steamTemp, steamSeconds, waterTemp, waterVol, units, profile, enabled);
   }
 
   static Config fromRequest(AsyncWebServerRequest* request) {
@@ -239,6 +247,12 @@ class Config {
       waterVol = parseUnsignedInt(param->value().c_str());
     }
 
+    int units = 0;
+    param = request->getParam(units_key, true, false);
+    if (param) {
+      units = parseUnsignedInt(param->value().c_str());
+    }
+
     const char* enabled = "";
     param = request->getParam(enabled_key, true, false);
     if (param) {
@@ -246,7 +260,7 @@ class Config {
     }
 
     return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, shotTarget, orientation,
-                  flushSeconds, requireScale, steamTemp, steamSeconds, waterTemp, waterVol, 0, enabled);
+                  flushSeconds, requireScale, steamTemp, steamSeconds, waterTemp, waterVol, units, 0, enabled);
   }
 
   // returns a url encoded version of the config, suitable for writing to EEProm
@@ -307,6 +321,10 @@ class Config {
     if (m_waterVol != 0) {
       size -= strlen(field);
       field += snprintf(field, size, "%s=%d&", water_vol_key, m_waterVol);
+    }
+    if (m_units != 0) {
+      size -= strlen(field);
+      field += snprintf(field, size, "%s=%d&", units_key, m_units);
     }
     if (m_profile != 0) {
       size -= strlen(field);
@@ -520,6 +538,23 @@ class Config {
     m_version = millis();
   }
 
+  // how temperatures are displayed
+  bool isImperial() {
+    return m_units == units_imperial;
+  }
+
+  int getUnits() {
+    return m_units;
+  }
+
+  void setUnits(int units) {
+    if (units < units_metric || units > units_imperial) {
+      return;
+    }
+    m_units = units;
+    m_version = millis();
+  }
+
   // how long the machine should run a flush for
   int getFlushSeconds() {
     return m_flushSeconds;
@@ -603,7 +638,7 @@ class Config {
  private:
   Config(int sleepTime, int stopAtWeight, int refillLevel, int warnLevel, int finerDirection, int shotMargin,
          int shotTarget, int orientation, int flushSeconds, int requireScale, int steamTemp, int steamSeconds,
-         int waterTemp, int waterVol, int profile, const char* enabled)
+         int waterTemp, int waterVol, int units, int profile, const char* enabled)
       : m_sleepTime{sleepTime},
         m_stopWeight{stopAtWeight},
         m_refillLevel{refillLevel},
@@ -618,6 +653,7 @@ class Config {
         m_steamSeconds{steamSeconds},
         m_waterTemp{waterTemp},
         m_waterVol{waterVol},
+        m_units{units},
         m_profile{profile},
         m_error{ConfigError::none} {
     setEnabledFromHex(enabled);
@@ -685,6 +721,10 @@ class Config {
 
     if (m_waterVol < min_water_vol || m_waterVol > max_water_vol) {
       m_waterVol = default_water_vol;
+    }
+
+    if (m_units < units_metric || m_units > units_imperial) {
+      m_units = default_units;
     }
 
     if (m_flushSeconds == 0) {
@@ -888,6 +928,9 @@ class Config {
   // hot water temperature in C and volume in ml
   int m_waterTemp;
   int m_waterVol;
+
+  // how temperatures are displayed
+  int m_units;
 
   // the selected profile, 1-based index into the compiled in profiles
   int m_profile;
