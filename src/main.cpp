@@ -47,6 +47,7 @@ int g_touchLastY = 0;
 #include <widget/ScaleStatus.h>
 #include <widget/ShotGraph.h>
 #include <widget/ShotTimer.h>
+#include <widget/Splash.h>
 #include <widget/WaterLevel.h>
 
 #include "ESPAsyncWebServer.h"
@@ -90,6 +91,7 @@ static Screen* s_connectScreen;
 static Screen* s_configScreen;
 static Screen* s_feedbackScreen;
 static Screen* s_adjustScreen;
+static Screen* s_splashScreen;
 
 const int BACKLIGHT_PWM_FREQ = 10000;
 const int BACKLIGHT_PWM_RESOLUTION = 8;
@@ -477,6 +479,9 @@ void setup() {
   s_adjustScreen = new Screen{ScreenID::adjust};
   s_adjustScreen->addWidget(new widget::AdjustFields{screenWidth, screenHeight});
 
+  s_splashScreen = new Screen{ScreenID::splash};
+  s_splashScreen->addWidget(new widget::Splash{screenWidth, screenHeight});
+
   /** *Optional* Sets the filtering mode used by the scanner in the BLE
    * controller.
    *
@@ -606,11 +611,19 @@ const unsigned long CMD_TIMEOUT = 2000 / TICK_TARGET;
 // how long a profile selection needs to settle before we persist and upload it
 const unsigned long PROFILE_SETTLE_TICKS = 3000 / TICK_TARGET;
 
+// how long in millis the splash screen shows on boot and wake, long enough
+// for the pour animation plus a beat of hold
+const unsigned long SPLASH_TIME = 6300;
+
 void loop() {
   // container for the commands we pop off our queue
   auto d = data::DataUpdate{UpdateType::null_update};
   auto nextTick = 0;
   idleStart = millis();
+
+  // greet the user with our splash on boot
+  g_ctx.screen = ScreenID::splash;
+  unsigned long splashStart = millis();
 
   auto lastScreen = ScreenID::unknown;
   auto lastState = MachineState::unknown;
@@ -642,6 +655,7 @@ void loop() {
       painted |= s_configScreen->tickAndPaint(g_ctx, gfx);
       painted |= s_feedbackScreen->tickAndPaint(g_ctx, gfx);
       painted |= s_adjustScreen->tickAndPaint(g_ctx, gfx);
+      painted |= s_splashScreen->tickAndPaint(g_ctx, gfx);
 
 #ifdef DISPLAY_RM67162
       // push our frame to the panel when anything changed
@@ -693,6 +707,13 @@ void loop() {
         }
 #endif
         idleStart = millis();
+
+        // waking from real sleep greets the user with our splash, boot rides
+        // through this branch too but already showed it
+        if (lastState == MachineState::sleep) {
+          g_ctx.screen = ScreenID::splash;
+          splashStart = millis();
+        }
 
         // send a wake command to our BLE devices
         auto wake = cmd::CommandRequest::newWakeCommand();
@@ -967,6 +988,12 @@ void loop() {
       // if it's time to reboot, do so
       if (g_ctx.restartTickID > 0 && g_ctx.tickID > g_ctx.restartTickID) {
         ESP.restart();
+      }
+
+      // the splash dismisses itself after a few seconds, unless the user
+      // already moved on with a button or touch
+      if (g_ctx.screen == ScreenID::splash && millis() - splashStart > SPLASH_TIME) {
+        g_ctx.screen = ScreenID::brew;
       }
 
       // handle our AP state based on what screen we are on, start and stop
