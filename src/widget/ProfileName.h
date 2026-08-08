@@ -23,13 +23,13 @@ class ProfileName : public Widget {
   }
 
   void paint(TFT_eSPI& tft) {
-    tft.fillRect(m_x, m_y, m_width, 14, theme.bg_color);
+    tft.fillRect(m_x, m_y, m_width, px(14), theme.bg_color);
 
     if (m_profile < 1 || m_profile > profile_count) {
       return;
     }
 
-    tft.setFreeFont(&FreeSans9pt7b);
+    tft.setFreeFont(FONT_BODY_SM);
     tft.setTextColor(theme.text_color, theme.bg_color);
     tft.drawString(profiles[m_profile - 1].name, m_x, m_y);
   }

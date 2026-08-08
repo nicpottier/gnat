@@ -28,30 +28,30 @@ class ConfigFields : public Widget {
   }
 
   void paint(TFT_eSPI& tft) {
-    tft.setFreeFont(&FreeSans9pt7b);
+    tft.setFreeFont(FONT_BODY);
     tft.setTextColor(theme.text_color, theme.bg_color);
 
     char buffer[16];
     snprintf(buffer, 16, "%dg", m_config.getStopWeight());
     tft.drawString("Stop weight:", m_x, m_y);
-    tft.drawString(buffer, m_x + 128, m_y);
+    tft.drawString(buffer, m_x + px(128), m_y);
 
     snprintf(buffer, 16, "%d min", m_config.getSleepTime());
-    tft.drawString("Sleep time:", m_x, m_y + 18);
-    tft.drawString(buffer, m_x + 128, m_y + 18);
+    tft.drawString("Sleep time:", m_x, m_y + px(18));
+    tft.drawString(buffer, m_x + px(128), m_y + px(18));
 
     // refill and warning levels share a line
     snprintf(buffer, 16, "%d / %d mm", m_config.getRefillLevel(), m_config.getWarnLevel());
-    tft.drawString("Water levels:", m_x, m_y + 36);
-    tft.drawString(buffer, m_x + 128, m_y + 36);
+    tft.drawString("Water levels:", m_x, m_y + px(36));
+    tft.drawString(buffer, m_x + px(128), m_y + px(36));
 
-    snprintf(buffer, 16, "%ds", m_config.getShotMargin());
-    tft.drawString("Grind margin:", m_x, m_y + 54);
-    tft.drawString(buffer, m_x + 128, m_y + 54);
+    snprintf(buffer, 16, "%ds / %ds", m_config.getShotTarget(), m_config.getShotMargin());
+    tft.drawString("Shot timer:", m_x, m_y + px(54));
+    tft.drawString(buffer, m_x + px(128), m_y + px(54));
 
     snprintf(buffer, 16, "%d of %d", m_config.enabledProfileCount(), profile_count);
-    tft.drawString("Profiles:", m_x, m_y + 72);
-    tft.drawString(buffer, m_x + 128, m_y + 72);
+    tft.drawString("Profiles:", m_x, m_y + px(72));
+    tft.drawString(buffer, m_x + px(128), m_y + px(72));
   }
 
  private:

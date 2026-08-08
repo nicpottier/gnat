@@ -21,21 +21,23 @@ class ConfigBackground : public Widget {
   }
 
   void paint(TFT_eSPI& tft) {
-    tft.fillScreen(theme.bg_color);
-    tft.fillRoundRect(0, 0, m_width, 35, 10, theme.dash_bg_color);
-    tft.fillRect(0, 10, m_width, 25, theme.dash_bg_color);
-    tft.drawRect(0, 0, m_width, 35, theme.dash_border_color);
-    tft.fillRoundRect(0, 35, m_width, m_height - 35, 10, theme.dash_bg_color);
-    tft.fillRect(0, 35, m_width, 50, theme.dash_bg_color);
-    tft.fillRoundRect(3, 38, m_width - 6, m_height - 35 - 6, 10, theme.bg_color);
+    auto sh = px(35);
+    auto r = px(10);
+    tft.fillRect(0, 0, m_width, m_height, theme.bg_color);
+    tft.fillRoundRect(0, 0, m_width, sh, r, theme.dash_bg_color);
+    tft.fillRect(0, r, m_width, sh - r, theme.dash_bg_color);
+    tft.drawRect(0, 0, m_width, sh, theme.dash_border_color);
+    tft.fillRoundRect(0, sh, m_width, m_height - sh, r, theme.dash_bg_color);
+    tft.fillRect(0, sh, m_width, px(50), theme.dash_bg_color);
+    tft.fillRoundRect(px(3), sh + px(3), m_width - px(6), m_height - sh - px(6), r, theme.bg_color);
 
-    tft.setFreeFont(&FreeSans9pt7b);
+    tft.setFreeFont(FONT_BODY);
 
     tft.setTextDatum(TL_DATUM);
     tft.setTextColor(theme.text_color, theme.dash_bg_color);
-    tft.drawString("Configuration", 10, 10);
+    tft.drawString("Configuration", px(10), px(10));
     tft.setTextDatum(TR_DATUM);
-    tft.drawString(SPLASH_VERSION, m_width - 10, 10);
+    tft.drawString(SPLASH_VERSION, m_width - px(10), px(10));
     tft.setTextDatum(TL_DATUM);
   }
 

@@ -11,6 +11,7 @@ static const char* refill_level_key = "refill_level";
 static const char* warn_level_key = "warn_level";
 static const char* finer_direction_key = "finer_direction";
 static const char* shot_margin_key = "shot_margin";
+static const char* shot_target_key = "shot_target";
 static const char* orientation_key = "orientation";
 static const char* flush_seconds_key = "flush_seconds";
 static const char* profile_key = "profile";
@@ -23,6 +24,7 @@ static const char* invalid_refill_level_error = "Invalid+refill+level,+must+be+b
 static const char* invalid_warn_level_error = "Invalid+warning+level,+must+be+between+1+and+40";
 static const char* invalid_shot_margin_error = "Invalid+shot+margin,+must+be+between+1+and+15";
 static const char* invalid_flush_seconds_error = "Invalid+flush+time,+must+be+between+1+and+30";
+static const char* invalid_shot_target_error = "Invalid+target+shot+time,+must+be+between+15+and+60";
 
 static const int default_stop_weight = 36;
 static const int max_stop_weight = 100;
@@ -43,6 +45,10 @@ static const int min_warn_level = 1;
 static const int default_shot_margin = 3;
 static const int max_shot_margin = 15;
 static const int min_shot_margin = 1;
+
+static const int default_shot_target = 30;
+static const int max_shot_target = 60;
+static const int min_shot_target = 15;
 
 static const int default_flush_seconds = 3;
 static const int max_flush_seconds = 30;
@@ -69,6 +75,7 @@ enum class ConfigError {
   invalid_warn_level,
   invalid_shot_margin,
   invalid_flush_seconds,
+  invalid_shot_target,
 };
 
 class Config {
@@ -80,6 +87,7 @@ class Config {
         m_warnLevel{default_warn_level},
         m_finerDirection{default_finer_direction},
         m_shotMargin{default_shot_margin},
+        m_shotTarget{default_shot_target},
         m_orientation{default_orientation},
         m_flushSeconds{default_flush_seconds},
         m_profile{profile_default},
@@ -95,6 +103,7 @@ class Config {
     auto warnLevel = getUnsignedInt(query, warn_level_key);
     auto finerDirection = getUnsignedInt(query, finer_direction_key);
     auto shotMargin = getUnsignedInt(query, shot_margin_key);
+    auto shotTarget = getUnsignedInt(query, shot_target_key);
     auto orientation = getUnsignedInt(query, orientation_key);
     auto flushSeconds = getUnsignedInt(query, flush_seconds_key);
     auto profile = getUnsignedInt(query, profile_key);
@@ -102,7 +111,7 @@ class Config {
     char enabled[max_profile_mask_bytes * 2 + 1] = "";
     getStringValue(query, enabled_key, enabled, sizeof(enabled));
 
-    return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, orientation,
+    return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, shotTarget, orientation,
                   flushSeconds, profile, enabled);
   }
 
@@ -144,6 +153,12 @@ class Config {
       shotMargin = parseUnsignedInt(param->value().c_str());
     }
 
+    int shotTarget = 0;
+    param = request->getParam(shot_target_key, true, false);
+    if (param) {
+      shotTarget = parseUnsignedInt(param->value().c_str());
+    }
+
     int orientation = 0;
     param = request->getParam(orientation_key, true, false);
     if (param) {
@@ -162,7 +177,7 @@ class Config {
       enabled = param->value().c_str();
     }
 
-    return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, orientation,
+    return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, shotTarget, orientation,
                   flushSeconds, 0, enabled);
   }
 
@@ -192,6 +207,10 @@ class Config {
     if (m_shotMargin != 0) {
       size -= strlen(field);
       field += snprintf(field, size, "%s=%d&", shot_margin_key, m_shotMargin);
+    }
+    if (m_shotTarget != 0) {
+      size -= strlen(field);
+      field += snprintf(field, size, "%s=%d&", shot_target_key, m_shotTarget);
     }
     if (m_orientation != 0) {
       size -= strlen(field);
@@ -228,6 +247,9 @@ class Config {
     } else if (m_error == ConfigError::invalid_flush_seconds) {
       size -= strlen(field);
       field += snprintf(field, size, "%s=%s", error_key, invalid_flush_seconds_error);
+    } else if (m_error == ConfigError::invalid_shot_target) {
+      size -= strlen(field);
+      field += snprintf(field, size, "%s=%s", error_key, invalid_shot_target_error);
     }
     return buffer;
   }
@@ -236,8 +258,24 @@ class Config {
     return m_sleepTime;
   }
 
+  void setSleepTime(int minutes) {
+    if (minutes < 1 || minutes > max_sleep_time) {
+      return;
+    }
+    m_sleepTime = minutes;
+    m_version = millis();
+  }
+
   int getStopWeight() {
     return m_stopWeight;
+  }
+
+  void setStopWeight(int weight) {
+    if (weight < 1 || weight > max_stop_weight) {
+      return;
+    }
+    m_stopWeight = weight;
+    m_version = millis();
   }
 
   int getRefillLevel() {
@@ -249,9 +287,37 @@ class Config {
     return m_warnLevel;
   }
 
+  void setWarnLevel(int level) {
+    if (level < min_warn_level || level > max_warn_level) {
+      return;
+    }
+    m_warnLevel = level;
+    m_version = millis();
+  }
+
+  void setRefillLevel(int level) {
+    if (level < min_refill_level || level > max_refill_level) {
+      return;
+    }
+    m_refillLevel = level;
+    m_version = millis();
+  }
+
   // whether the grinder goes finer rotating left
   bool finerIsLeft() {
     return m_finerDirection != finer_direction_right;
+  }
+
+  int getFinerDirection() {
+    return m_finerDirection;
+  }
+
+  void setFinerDirection(int direction) {
+    if (direction < finer_direction_left || direction > finer_direction_right) {
+      return;
+    }
+    m_finerDirection = direction;
+    m_version = millis();
   }
 
   // how many seconds from the target shot time before we suggest a grind change
@@ -259,14 +325,55 @@ class Config {
     return m_shotMargin;
   }
 
+  void setShotMargin(int margin) {
+    if (margin < min_shot_margin || margin > max_shot_margin) {
+      return;
+    }
+    m_shotMargin = margin;
+    m_version = millis();
+  }
+
+  // the shot time we are aiming for
+  int getShotTarget() {
+    return m_shotTarget;
+  }
+
+  void setShotTarget(int target) {
+    if (target < min_shot_target || target > max_shot_target) {
+      return;
+    }
+    m_shotTarget = target;
+    m_version = millis();
+  }
+
   // whether the device sits rotated 180 degrees
   bool isFlipped() {
     return m_orientation == orientation_flipped;
   }
 
+  int getOrientation() {
+    return m_orientation;
+  }
+
+  void setOrientation(int orientation) {
+    if (orientation < orientation_normal || orientation > orientation_flipped) {
+      return;
+    }
+    m_orientation = orientation;
+    m_version = millis();
+  }
+
   // how long the machine should run a flush for
   int getFlushSeconds() {
     return m_flushSeconds;
+  }
+
+  void setFlushSeconds(int seconds) {
+    if (seconds < min_flush_seconds || seconds > max_flush_seconds) {
+      return;
+    }
+    m_flushSeconds = seconds;
+    m_version = millis();
   }
 
   // the selected profile, 1-based
@@ -327,13 +434,14 @@ class Config {
 
  private:
   Config(int sleepTime, int stopAtWeight, int refillLevel, int warnLevel, int finerDirection, int shotMargin,
-         int orientation, int flushSeconds, int profile, const char* enabled)
+         int shotTarget, int orientation, int flushSeconds, int profile, const char* enabled)
       : m_sleepTime{sleepTime},
         m_stopWeight{stopAtWeight},
         m_refillLevel{refillLevel},
         m_warnLevel{warnLevel},
         m_finerDirection{finerDirection},
         m_shotMargin{shotMargin},
+        m_shotTarget{shotTarget},
         m_orientation{orientation},
         m_flushSeconds{flushSeconds},
         m_profile{profile},
@@ -373,6 +481,12 @@ class Config {
       m_shotMargin = default_shot_margin;
     } else if (m_shotMargin < min_shot_margin || m_shotMargin > max_shot_margin) {
       m_error = ConfigError::invalid_shot_margin;
+    }
+
+    if (m_shotTarget == 0) {
+      m_shotTarget = default_shot_target;
+    } else if (m_shotTarget < min_shot_target || m_shotTarget > max_shot_target) {
+      m_error = ConfigError::invalid_shot_target;
     }
 
     if (m_orientation < orientation_normal || m_orientation > orientation_flipped) {
@@ -560,6 +674,9 @@ class Config {
 
   // seconds from the target shot time before we suggest a grind change
   int m_shotMargin;
+
+  // the shot time we are aiming for, in seconds
+  int m_shotTarget;
 
   // how the device sits
   int m_orientation;

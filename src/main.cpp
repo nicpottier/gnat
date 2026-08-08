@@ -11,6 +11,21 @@
 #include <TFT_eSPI.h>
 #endif
 
+#ifdef DISPLAY_RM67162
+#include <amoled/rm67162.h>
+#endif
+
+#ifdef TOUCH_CST816
+#include <touch/CST816.h>
+CST816 g_touch;
+bool g_touchWasDown = false;
+bool g_touchCircle = false;
+int g_touchStartX = 0;
+int g_touchStartY = 0;
+int g_touchLastX = 0;
+int g_touchLastY = 0;
+#endif
+
 #include <AsyncTCP.h>
 #include <DNSServer.h>
 #include <Esp.h>
@@ -24,6 +39,7 @@
 #include <widget/BrewBackground.h>
 #include <widget/ConfigBackground.h>
 #include <widget/ConfigFields.h>
+#include <widget/AdjustFields.h>
 #include <widget/ConnectInstructions.h>
 #include <widget/FeedbackBanner.h>
 #include <widget/MachineStatus.h>
@@ -47,6 +63,11 @@ AsyncWebServer g_server(80);
 // the tft we draw to
 TFT_eSPI tft = TFT_eSPI();
 
+#ifdef DISPLAY_RM67162
+// AMOLED panels render into a full screen sprite that we push over QSPI
+TFT_eSprite g_frame = TFT_eSprite(&tft);
+#endif
+
 // The build version comes from an environment variable. Use the VERSION
 // define wherever the version is needed.
 #define STRINGIZER(arg) #arg
@@ -68,10 +89,31 @@ static Screen* s_brewScreen;
 static Screen* s_connectScreen;
 static Screen* s_configScreen;
 static Screen* s_feedbackScreen;
+static Screen* s_adjustScreen;
 
 const int BACKLIGHT_PWM_FREQ = 10000;
 const int BACKLIGHT_PWM_RESOLUTION = 8;
 const int BACKLIGHT_PWM_CHANNEL = 0;
+
+#ifndef M5_STICK
+// some backlight drivers (t-display-s3-pro) step dim on pulses, PWM turns them
+// off, those boards define BACKLIGHT_DIGITAL and get simple on / off instead
+void backlightOn() {
+#ifdef BACKLIGHT_DIGITAL
+  digitalWrite(TFT_BL, HIGH);
+#else
+  ledcWrite(BACKLIGHT_PWM_CHANNEL, BACKLIGHT_ON);
+#endif
+}
+
+void backlightOff() {
+#ifdef BACKLIGHT_DIGITAL
+  digitalWrite(TFT_BL, LOW);
+#else
+  ledcWrite(BACKLIGHT_PWM_CHANNEL, 0);
+#endif
+}
+#endif
 
 auto g_ctx = data::Context{};
 
@@ -301,6 +343,47 @@ void stopAP() {
   WiFi.softAPdisconnect(true);
 }
 
+#ifdef COMBO_BUTTON_PIN
+// single button boards: a short press cycles profiles / dismisses feedback,
+// a long press cycles screens like the menu button
+volatile unsigned long comboPressStart = 0;
+
+void IRAM_ATTR comboButtonChanged() {
+  bool pressed = digitalRead(COMBO_BUTTON_PIN) == LOW;
+  auto now = millis();
+
+  if (pressed) {
+    comboPressStart = now;
+    return;
+  }
+
+  if (comboPressStart == 0) {
+    return;
+  }
+  auto held = now - comboPressStart;
+  comboPressStart = 0;
+
+  // too short to be a real press
+  if (held < 50) {
+    return;
+  }
+
+  if (held >= 600) {
+    auto nextScreen = ScreenID::brew;
+    if (g_ctx.screen == ScreenID::brew) {
+      nextScreen = ScreenID::connect;
+    } else if (g_ctx.screen == ScreenID::connect) {
+      nextScreen = ScreenID::config;
+    }
+    auto screen = data::DataUpdate::newScreenUpdate(nextScreen);
+    xQueueSendFromISR(updateQ, &screen, NULL);
+  } else {
+    auto cycle = data::DataUpdate::newProfileCycleUpdate();
+    xQueueSendFromISR(updateQ, &cycle, NULL);
+  }
+}
+#endif
+
 #ifdef PROFILE_BUTTON_PIN
 long lastProfilePress = millis();
 
@@ -341,6 +424,16 @@ void setup() {
   Serial.begin(115200);
   Serial.printf("[%d] Setup - Version: %s\n", xPortGetCoreID(), VERSION);
 
+#ifdef BOARD_POWER_PIN
+  // power cycle the display rail, warm resets can leave the panel latched in
+  // a dark state that only losing power clears
+  pinMode(BOARD_POWER_PIN, OUTPUT);
+  digitalWrite(BOARD_POWER_PIN, LOW);
+  delay(200);
+  digitalWrite(BOARD_POWER_PIN, HIGH);
+  delay(100);
+#endif
+
 #ifdef DISABLE_SERIAL_TIMEOUT
   // turn off caching to the serial port.. S3 gets very slow if not connected
   Serial.setTxTimeoutMs(0);
@@ -364,22 +457,25 @@ void setup() {
 
   s_brewScreen = new Screen{ScreenID::brew};
   s_brewScreen->addWidget(new widget::BrewBackground{screenWidth, screenHeight});
-  s_brewScreen->addWidget(new widget::ScaleStatus{5, 7, 80});
-  s_brewScreen->addWidget(new widget::MachineStatus{screenWidth / 3 + 5, 7, 80});
-  s_brewScreen->addWidget(new widget::ShotTimer{(screenWidth / 3) * 2 + 5, 7, 80});
-  s_brewScreen->addWidget(new widget::ShotGraph{5, 40, screenWidth - 30, screenHeight - 57});
-  s_brewScreen->addWidget(new widget::WaterLevel{screenWidth - 18, 42, 10, screenHeight - 49});
-  s_brewScreen->addWidget(new widget::ProfileName{8, screenHeight - 14, screenWidth - 34});
+  s_brewScreen->addWidget(new widget::ScaleStatus{px(5), px(7), px(80)});
+  s_brewScreen->addWidget(new widget::MachineStatus{screenWidth / 3 + px(5), px(7), px(80)});
+  s_brewScreen->addWidget(new widget::ShotTimer{(screenWidth / 3) * 2 + px(5), px(7), px(80)});
+  s_brewScreen->addWidget(new widget::ShotGraph{px(5), px(40), screenWidth - px(30), screenHeight - px(57)});
+  s_brewScreen->addWidget(new widget::WaterLevel{screenWidth - px(18), px(42), px(10), screenHeight - px(49)});
+  s_brewScreen->addWidget(new widget::ProfileName{px(8), screenHeight - px(14), screenWidth - px(34)});
 
   s_connectScreen = new Screen{ScreenID::connect};
   s_connectScreen->addWidget(new widget::ConnectInstructions{screenWidth, screenHeight});
 
   s_configScreen = new Screen{ScreenID::config};
   s_configScreen->addWidget(new widget::ConfigBackground{screenWidth, screenHeight});
-  s_configScreen->addWidget(new widget::ConfigFields{18, 46, screenWidth - 36, screenHeight - 46});
+  s_configScreen->addWidget(new widget::ConfigFields{px(18), px(46), screenWidth - px(36), screenHeight - px(46)});
 
   s_feedbackScreen = new Screen{ScreenID::feedback};
   s_feedbackScreen->addWidget(new widget::FeedbackBanner{screenWidth, screenHeight});
+
+  s_adjustScreen = new Screen{ScreenID::adjust};
+  s_adjustScreen->addWidget(new widget::AdjustFields{screenWidth, screenHeight});
 
   /** *Optional* Sets the filtering mode used by the scanner in the BLE
    * controller.
@@ -436,14 +532,37 @@ void setup() {
 #ifdef M5_STICK
   M5.Axp.ScreenBreath(7);
   tft = M5.Lcd;
+#elif defined(DISPLAY_RM67162)
+  rm67162_init();
+  lcd_setRotation(g_ctx.config.isFlipped() ? 1 : 3);
+  g_frame.createSprite(screenWidth, screenHeight);
+  g_frame.setSwapBytes(true);
+  g_frame.fillSprite(theme.bg_color);
+
+#ifdef TOUCH_CST816
+  if (g_touch.begin(TOUCH_SDA_PIN, TOUCH_SCL_PIN)) {
+    Serial.println("[TOUCH] controller found");
+  } else {
+    Serial.println("[TOUCH] controller NOT found");
+  }
+#endif
 #else
   tft.init();
 
+#ifdef BACKLIGHT_DIGITAL
+  pinMode(TFT_BL, OUTPUT);
+#else
   ledcSetup(BACKLIGHT_PWM_CHANNEL, BACKLIGHT_PWM_FREQ, BACKLIGHT_PWM_RESOLUTION);
   ledcAttachPin(TFT_BL, BACKLIGHT_PWM_CHANNEL);
-  ledcWrite(BACKLIGHT_PWM_CHANNEL, BACKLIGHT_ON);
+#endif
+  backlightOn();
 #endif
 
+#ifdef COMBO_BUTTON_PIN
+  // single button, short press for profiles, long press for menu
+  pinMode(COMBO_BUTTON_PIN, INPUT_PULLUP);
+  attachInterrupt(COMBO_BUTTON_PIN, comboButtonChanged, CHANGE);
+#else
   // when flipped the physical positions of our buttons swap, keep the lower
   // button as the profile / dismiss button and the upper one as menu
   auto menuPin = MENU_BUTTON_PIN;
@@ -459,10 +578,13 @@ void setup() {
 
   pinMode(menuPin, INPUT_PULLUP);
   attachInterrupt(menuPin, menuButtonPressed, FALLING);
+#endif
 
+#ifndef DISPLAY_RM67162
   tft.setRotation(g_ctx.config.isFlipped() ? 1 : 3);
   tft.setSwapBytes(true);
   tft.fillScreen(theme.bg_color);
+#endif
 }
 
 unsigned long lastTick = 0;
@@ -484,9 +606,6 @@ const unsigned long CMD_TIMEOUT = 2000 / TICK_TARGET;
 // how long a profile selection needs to settle before we persist and upload it
 const unsigned long PROFILE_SETTLE_TICKS = 3000 / TICK_TARGET;
 
-// our target shot time, the configurable margin decides when we call it out
-const double TARGET_SHOT_SECONDS = 30;
-
 void loop() {
   // container for the commands we pop off our queue
   auto d = data::DataUpdate{UpdateType::null_update};
@@ -500,6 +619,7 @@ void loop() {
   auto lastProfile = g_ctx.config.getProfile();
   unsigned long profileChangedTick = 0;
   unsigned long pourStart = 0;
+  unsigned long adjustDirtyTick = 0;
   auto lastFeedback = FeedbackType::none;
   bool waterWarnDismissed = false;
   auto lastFlipped = g_ctx.config.isFlipped();
@@ -512,22 +632,38 @@ void loop() {
     // ready for our next tick?
     if (millis() > nextTick) {
       // paint all our screens
-      s_brewScreen->tickAndPaint(g_ctx, tft);
-      s_connectScreen->tickAndPaint(g_ctx, tft);
-      s_configScreen->tickAndPaint(g_ctx, tft);
-      s_feedbackScreen->tickAndPaint(g_ctx, tft);
+#ifdef DISPLAY_RM67162
+      TFT_eSPI& gfx = g_frame;
+#else
+      TFT_eSPI& gfx = tft;
+#endif
+      bool painted = s_brewScreen->tickAndPaint(g_ctx, gfx);
+      painted |= s_connectScreen->tickAndPaint(g_ctx, gfx);
+      painted |= s_configScreen->tickAndPaint(g_ctx, gfx);
+      painted |= s_feedbackScreen->tickAndPaint(g_ctx, gfx);
+      painted |= s_adjustScreen->tickAndPaint(g_ctx, gfx);
+
+#ifdef DISPLAY_RM67162
+      // push our frame to the panel when anything changed
+      if (painted) {
+        lcd_PushColors(0, 0, screenWidth, screenHeight, (uint16_t*)g_frame.getPointer());
+      }
+#endif
 
       // we just went to sleep, turn off the screen
       if (g_ctx.machineState == MachineState::sleep && lastState != g_ctx.machineState) {
 #ifdef M5_STICK
         M5.Axp.ScreenSwitch(false);
-#endif        
+#endif
 #ifdef TTGO
-        ledcWrite(BACKLIGHT_PWM_CHANNEL, 0);
+        backlightOff();
         tft.writecommand(ST7789_DISPOFF);
 #endif
 #ifdef ESP32_2432S028R
-  digitalWrite(TFT_BL, LOW);
+        digitalWrite(TFT_BL, LOW);
+#endif
+#ifdef DISPLAY_RM67162
+        lcd_sleep();
 #endif
 
         // send a sleep command to our BLE devices
@@ -542,8 +678,19 @@ void loop() {
         M5.Axp.ScreenSwitch(true);
 #endif
 #ifdef TTGO
-        ledcWrite(BACKLIGHT_PWM_CHANNEL, BACKLIGHT_ON);
+        backlightOn();
         tft.writecommand(ST7789_DISPON);
+#endif
+#ifdef ESP32_2432S028R
+        digitalWrite(TFT_BL, HIGH);
+#endif
+#ifdef DISPLAY_RM67162
+        // wake the panel and restore our frame, but only when we actually
+        // slept, this branch also fires on boot with lastState still unknown
+        if (lastState == MachineState::sleep) {
+          lcd_wake();
+          lcd_PushColors(0, 0, screenWidth, screenHeight, (uint16_t*)g_frame.getPointer());
+        }
 #endif
         idleStart = millis();
 
@@ -571,12 +718,13 @@ void loop() {
           pourStart > 0) {
         auto seconds = (millis() - pourStart) / (double)1000;
         g_ctx.feedbackSeconds = seconds;
+        auto target = (double)g_ctx.config.getShotTarget();
         auto margin = (double)g_ctx.config.getShotMargin();
-        if (fabs(seconds - TARGET_SHOT_SECONDS) <= 0.5) {
+        if (fabs(seconds - target) <= 0.5) {
           g_ctx.feedback = FeedbackType::nailed_it;
-        } else if (seconds <= TARGET_SHOT_SECONDS - margin) {
+        } else if (seconds <= target - margin) {
           g_ctx.feedback = FeedbackType::grind_finer;
-        } else if (seconds >= TARGET_SHOT_SECONDS + margin) {
+        } else if (seconds >= target + margin) {
           g_ctx.feedback = FeedbackType::grind_coarser;
         } else {
           g_ctx.feedback = FeedbackType::none;
@@ -654,6 +802,123 @@ void loop() {
         }
       }
 
+#ifdef TOUCH_CST816
+      // poll the touch controller, tracking presses so we can tell taps from
+      // swipes when the finger lifts
+      int touchX, touchY;
+      bool touchDown = g_touch.read(touchX, touchY);
+
+      if (touchDown) {
+        // the round capacitive button reports out past the panel
+        bool circle = touchX >= 560;
+
+        // map the controller's coordinates into our ui space
+        int ux = screenWidth - 1 - touchX;
+        int uy = screenHeight - 1 - touchY;
+        if (g_ctx.config.isFlipped()) {
+          ux = screenWidth - 1 - ux;
+          uy = screenHeight - 1 - uy;
+        }
+
+        if (!g_touchWasDown) {
+          g_touchCircle = circle;
+          g_touchStartX = ux;
+          g_touchStartY = uy;
+
+          // the circle is a home button, from any other screen it returns to
+          // brew (dismissing any feedback), from the brew screen it opens the
+          // menu screens
+          if (circle) {
+            g_ctx.feedback = FeedbackType::none;
+            g_ctx.feedbackPreview = false;
+            auto nextScreen = ScreenID::brew;
+            if (g_ctx.screen == ScreenID::brew) {
+              nextScreen = ScreenID::connect;
+            }
+            auto screen = data::DataUpdate::newScreenUpdate(nextScreen);
+            xQueueSend(updateQ, &screen, 10);
+          }
+        }
+        if (!circle) {
+          g_touchLastX = ux;
+          g_touchLastY = uy;
+        }
+      } else if (g_touchWasDown && !g_touchCircle) {
+        // finger lifted, decide what the gesture was
+        int dx = g_touchLastX - g_touchStartX;
+        int dy = g_touchLastY - g_touchStartY;
+        Serial.printf("[TOUCH] release at %d,%d delta %d,%d\n", g_touchLastX, g_touchLastY, dx, dy);
+
+        if (abs(dx) >= px(50) && abs(dx) > abs(dy)) {
+          // horizontal swipe, left moves forward through the adjust pages,
+          // right moves back, wrapping to the brew screen at either end
+          if (dx < 0) {
+            if (g_ctx.screen == ScreenID::brew) {
+              g_ctx.adjustPage = 0;
+              g_ctx.screen = ScreenID::adjust;
+            } else if (g_ctx.screen == ScreenID::adjust) {
+              if (++g_ctx.adjustPage >= widget::adjust_page_count) {
+                g_ctx.screen = ScreenID::brew;
+              }
+            }
+          } else {
+            if (g_ctx.screen == ScreenID::brew) {
+              g_ctx.adjustPage = widget::adjust_page_count - 1;
+              g_ctx.screen = ScreenID::adjust;
+            } else if (g_ctx.screen == ScreenID::adjust) {
+              if (g_ctx.adjustPage == 0) {
+                g_ctx.screen = ScreenID::brew;
+              } else {
+                g_ctx.adjustPage--;
+              }
+            }
+          }
+        } else if (abs(dx) < px(15) && abs(dy) < px(15)) {
+          // a tap
+          if (g_ctx.screen == ScreenID::brew) {
+            // tapping the brew screen cycles the profile
+            auto cycle = data::DataUpdate::newProfileCycleUpdate();
+            xQueueSend(updateQ, &cycle, 10);
+          } else if (g_ctx.screen == ScreenID::adjust && g_ctx.adjustPage < widget::adjust_page_count) {
+            // tapping a +/- button steps its value
+            auto& page = widget::adjust_pages[g_ctx.adjustPage];
+            for (int i = 0; i < page.valueCount; i++) {
+              auto& value = page.values[i];
+
+              if (value.names) {
+                // named values have one wide toggle button
+                int bx, by, bw, bh;
+                widget::adjustToggleRect(i, bx, by, bw, bh);
+                if (g_touchStartX >= bx && g_touchStartX <= bx + bw && g_touchStartY >= by - px(8) &&
+                    g_touchStartY <= by + bh + px(8)) {
+                  widget::adjustToggle(g_ctx.config, value);
+                  adjustDirtyTick = g_ctx.tickID;
+                }
+                continue;
+              }
+
+              for (int plus = 0; plus <= 1; plus++) {
+                int cx, cy;
+                widget::adjustButtonCenter(i, plus, cx, cy);
+                auto r = px(widget::adjust_button_r) * 3 / 2;
+                if (abs(g_touchStartX - cx) <= r && abs(g_touchStartY - cy) <= r) {
+                  value.set(g_ctx.config, value.get(g_ctx.config) + (plus ? value.step : -value.step));
+                  adjustDirtyTick = g_ctx.tickID;
+                }
+              }
+            }
+          }
+        }
+      }
+      g_touchWasDown = touchDown;
+
+      // persist adjusted settings once the taps settle
+      if (adjustDirtyTick > 0 && g_ctx.tickID - adjustDirtyTick > PROFILE_SETTLE_TICKS) {
+        writeConfig(g_ctx.config);
+        adjustDirtyTick = 0;
+      }
+#endif
+
       // if our config changed, pass along our new refill level and flush time
       if (g_ctx.config.getVersion() != lastConfigVersion) {
         lastConfigVersion = g_ctx.config.getVersion();
@@ -680,9 +945,11 @@ void loop() {
         profileChangedTick = 0;
       }
 
-      // orientation changes need a restart to take effect
+      // orientation changes need a restart to take effect, persist first so
+      // the change survives the reboot
       if (g_ctx.config.isFlipped() != lastFlipped) {
         lastFlipped = g_ctx.config.isFlipped();
+        writeConfig(g_ctx.config);
         g_ctx.restartTickID = g_ctx.tickID + restart_tick_delay;
       }
 
