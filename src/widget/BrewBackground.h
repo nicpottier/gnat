@@ -5,7 +5,7 @@
 
 namespace widget {
 
-const int status_height = 35;
+const int status_height = 24;
 
 class BrewBackground : public Widget {
  public:

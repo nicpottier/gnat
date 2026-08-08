@@ -37,14 +37,20 @@ class WaterLevel : public Widget {
   }
 
   void paint(TFT_eSPI& tft) {
+    // a thicker border with softly rounded corners
+    auto bt = max(2, px(2));
+    auto r = px(4);
+    for (int i = 0; i < bt; i++) {
+      tft.drawRoundRect(m_x + i, m_y + i, m_width - i * 2, m_height - i * 2, max(1, r - i), theme.water_color);
+    }
+
     // the interior of our bar
-    auto ix = m_x + px(2);
-    auto iy = m_y + px(2);
-    auto iw = m_width - px(4);
-    auto ih = m_height - px(4);
+    auto ix = m_x + bt + 1;
+    auto iy = m_y + bt + 1;
+    auto iw = m_width - (bt + 1) * 2;
+    auto ih = m_height - (bt + 1) * 2;
 
     tft.fillRect(ix, iy, iw, ih, theme.bg_color);
-    tft.drawRoundRect(m_x, m_y, m_width, m_height, px(2), theme.water_color);
 
     auto levelPx = ih * min(m_level, water_level_full_mm) / water_level_full_mm;
     auto thresholdPx = ih * min(m_threshold, water_level_full_mm) / water_level_full_mm;
