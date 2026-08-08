@@ -1017,7 +1017,7 @@ class Config {
   unsigned long m_version;
 };
 
-bool writeConfig(Config config) {
+inline bool writeConfig(Config config) {
   char query[EEPROM_SIZE - 3];
   config.toURLQuery(query, EEPROM_SIZE - 3);
 
@@ -1032,7 +1032,7 @@ bool writeConfig(Config config) {
   return EEPROM.commit();
 }
 
-Config readConfig() {
+inline Config readConfig() {
   auto config = Config();
 
   EEPROM.begin(EEPROM_SIZE);

@@ -58,7 +58,7 @@ enum class MachineState {
   unknown = 255,         // 255, unknown (gnat specific)
 };
 
-const char* STATES[] = {
+static const char* STATES[] = {
     "sleep",           // 0 Everything is off
     "going_to_sleep",  // 1 Going to sleep
     "idle",            // 2 Heaters are controlled, tank water will be heated if required.
