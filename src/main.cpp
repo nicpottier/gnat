@@ -618,6 +618,12 @@ const unsigned long CMD_TIMEOUT = 2000 / TICK_TARGET;
 // how long a profile selection needs to settle before we persist and upload it
 const unsigned long PROFILE_SETTLE_TICKS = 3000 / TICK_TARGET;
 
+// hot water fills dispense by weight when a scale is connected: presses
+// within this window continue the same fill instead of taring fresh, and we
+// stop the pour a little early for the stream still in flight
+const unsigned long HOT_WATER_SESSION_MS = 60 * 1000;
+const double HOT_WATER_STOP_EARLY_G = 5;
+
 // how long in millis the splash screen shows on boot and wake, long enough
 // for the pour animation plus a beat of hold
 const unsigned long SPLASH_TIME = 6300;
@@ -644,8 +650,10 @@ void loop() {
   bool waterWarnDismissed = false;
   auto lastFlipped = g_ctx.config.isFlipped();
 
-  // whether we switched to the hot water page ourselves for a pour
+  // whether we switched to the hot water page ourselves for a pour, and
+  // when the current fill session last saw hot water running
   bool autoHotWater = false;
+  unsigned long hotWaterSessionMs = 0;
 
   while (true) {
     while (xQueueReceive(updateQ, (void*)&d, 0) == pdTRUE) {
@@ -729,6 +737,30 @@ void loop() {
         // send a wake command to our BLE devices
         auto wake = cmd::CommandRequest::newWakeCommand();
         xQueueSend(cmdQ, &wake, 10);
+      }
+
+      // a fresh hot water fill tares the scale so we can dispense by weight,
+      // another press within the session window continues the same fill
+      if (g_ctx.machineState == MachineState::hot_water && lastState != MachineState::hot_water &&
+          g_ctx.getScaleBLEState() == BLEState::connected &&
+          (hotWaterSessionMs == 0 || millis() - hotWaterSessionMs > HOT_WATER_SESSION_MS)) {
+        auto tare = cmd::CommandRequest::newTareScaleCommand();
+        xQueueSend(cmdQ, &tare, 10);
+      }
+
+      // while hot water runs with a scale, stop at the target weight, a
+      // gram of water being a milliliter, the machine's own volume estimate
+      // is just the backstop
+      if (g_ctx.machineState == MachineState::hot_water) {
+        hotWaterSessionMs = millis();
+        if (g_ctx.getScaleBLEState() == BLEState::connected &&
+            g_ctx.currentWeight >= g_ctx.config.getWaterVol() - HOT_WATER_STOP_EARLY_G &&
+            g_ctx.tickID - lastStop > CMD_TIMEOUT) {
+          Serial.printf("[WATER] stopping at %0.1fg of %dg\n", g_ctx.currentWeight, g_ctx.config.getWaterVol());
+          auto stop = cmd::CommandRequest::newStopMachineCommand();
+          xQueueSend(cmdQ, &stop, 10);
+          lastStop = g_ctx.tickID;
+        }
       }
 
       // a hot water pour pulls up the hot water page so its presets are a

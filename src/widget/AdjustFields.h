@@ -232,13 +232,26 @@ class AdjustFields : public Widget {
         m_height{height} {};
 
   bool tick(data::Context ctx, unsigned long tickID, unsigned long millis) {
+    bool changed = false;
+
+    // fill progress on the hot water page while pouring
+    auto hotWater = ctx.machineState == MachineState::hot_water;
+    auto scaleConnected = ctx.getScaleBLEState() == BLEState::connected;
+    auto weight = int(ctx.currentWeight);
+    if (hotWater != m_hotWater || scaleConnected != m_scaleConnected || (hotWater && weight != m_weight)) {
+      m_hotWater = hotWater;
+      m_scaleConnected = scaleConnected;
+      m_weight = weight;
+      changed = true;
+    }
+
     if (ctx.adjustPage != m_page || ctx.config.getVersion() != m_version) {
       m_page = ctx.adjustPage;
       m_version = ctx.config.getVersion();
       m_config = ctx.config;
-      return true;
+      changed = true;
     }
-    return false;
+    return changed;
   }
 
   void paint(TFT_eSPI& tft) {
@@ -345,11 +358,10 @@ class AdjustFields : public Widget {
     snprintf(sizeLabel, 32, "%s (%d%s)", size.name, displayVol(size.value, imperial), volUnit(imperial));
     const char* labels[2] = {teaLabel, sizeLabel};
 
-    // oversized pours run the hot water button more than once
-    if (size.value > hot_water_pour_max) {
-      char note[40];
-      auto pours = (size.value + hot_water_pour_max - 1) / hot_water_pour_max;
-      snprintf(note, 40, "pours as %d x %d%s", pours, displayVol(size.value / pours, imperial), volUnit(imperial));
+    // while filling with a scale connected, show progress toward the target
+    if (m_hotWater && m_scaleConnected) {
+      char note[24];
+      snprintf(note, 24, "%d / %dg", m_weight, m_config.getWaterVol());
       tft.setFreeFont(FONT_BODY_SM);
       tft.setTextDatum(TC_DATUM);
       tft.drawString(note, m_width / 2, m_height - px(16));
@@ -424,6 +436,11 @@ class AdjustFields : public Widget {
   unsigned long m_version = 0;
   int m_width;
   int m_height;
+
+  // live fill state for the hot water page
+  bool m_hotWater = false;
+  bool m_scaleConnected = false;
+  int m_weight = 0;
 };
 
 }  // namespace widget
