@@ -344,8 +344,19 @@ int main(int argc, char** argv) {
     fprintf(stderr, "SDL init failed: %s\n", SDL_GetError());
     return 1;
   }
-  auto window = SDL_CreateWindow("GNAT Emulator", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, canvas_w * 2,
-                                 canvas_h * 2, SDL_WINDOW_ALLOW_HIGHDPI);
+
+  // zoom is the window scale, 1x shows the panel pixel for pixel, keys 1-4
+  // change it live, EMU_ZOOM sets the start
+  int zoom = 1;
+  if (auto z = getenv("EMU_ZOOM")) {
+    zoom = max(1, min(4, atoi(z)));
+  }
+
+  // nearest neighbor scaling keeps pixels crisp at every zoom
+  SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
+
+  auto window = SDL_CreateWindow("GNAT Emulator", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, canvas_w * zoom,
+                                 canvas_h * zoom, SDL_WINDOW_ALLOW_HIGHDPI);
   auto renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
   SDL_RenderSetLogicalSize(renderer, canvas_w, canvas_h);
   auto texture =
@@ -414,6 +425,13 @@ int main(int argc, char** argv) {
           case SDLK_RIGHT: pressButton(BTN_SWIPE_R); break;
           case SDLK_h: pressButton(BTN_HOME); break;
           case SDLK_b: pressButton(BTN_DEVICE); break;
+          case SDLK_1:
+          case SDLK_2:
+          case SDLK_3:
+          case SDLK_4:
+            zoom = e.key.keysym.sym - SDLK_0;
+            SDL_SetWindowSize(window, canvas_w * zoom, canvas_h * zoom);
+            break;
           case SDLK_ESCAPE: running = false; break;
         }
       } else if (e.type == SDL_KEYUP && e.key.keysym.sym == SDLK_b && deviceButtonHeld) {

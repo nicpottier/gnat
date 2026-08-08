@@ -33,7 +33,8 @@ connect automatically shortly after boot.
 
 Keyboard: `z` sleep, `i` idle, `s` shot, `t` steam, `w` water, `x` stop,
 `d`/`c` toggle DE1/scale, `[`/`]` tank, arrows swipe, `h` home, `b` device
-button, `Esc` quits.
+button, `1`-`4` zoom, `Esc` quits. The window opens at 1x (pixel for
+pixel); `EMU_ZOOM=2` picks the starting zoom.
 
 Config persists to `gnat-emu.eeprom` in the working directory, exactly as
 the device would write it (delete the file for a factory reset). A firmware
