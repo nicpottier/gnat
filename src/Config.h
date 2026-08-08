@@ -415,6 +415,17 @@ class Config {
     return m_profile;
   }
 
+  // the previous enabled profile before the current one, 1-based, wrapping around
+  int prevEnabledProfile() {
+    for (int i = 1; i <= profile_count; i++) {
+      int idx = ((m_profile - 1 - i) % profile_count + profile_count) % profile_count;
+      if (isProfileEnabled(idx)) {
+        return idx + 1;
+      }
+    }
+    return m_profile;
+  }
+
   // the enabled mask as a hex string, buffer needs max_profile_mask_bytes * 2 + 1
   const char* enabledHex(char* buffer) {
     for (int i = 0; i < profile_mask_bytes; i++) {

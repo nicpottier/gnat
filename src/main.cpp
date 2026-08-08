@@ -875,20 +875,31 @@ void loop() {
           }
         } else if (abs(dx) < px(15) && abs(dy) < px(15)) {
           // a tap
-          if (g_ctx.screen == ScreenID::brew) {
-            // tapping the brew screen cycles the profile
-            auto cycle = data::DataUpdate::newProfileCycleUpdate();
-            xQueueSend(updateQ, &cycle, 10);
-          } else if (g_ctx.screen == ScreenID::adjust && g_ctx.adjustPage < widget::adjust_page_count) {
-            // tapping a +/- button steps its value
+          if (g_ctx.screen == ScreenID::adjust && g_ctx.adjustPage < widget::adjust_page_count) {
             auto& page = widget::adjust_pages[g_ctx.adjustPage];
+
+            // the profile page cycles through the enabled profiles
+            if (!page.values) {
+              for (int next = 0; next <= 1; next++) {
+                int cx, cy;
+                widget::adjustProfileButtonCenter(screenWidth, next, cx, cy);
+                auto r = px(widget::adjust_button_r) * 3 / 2;
+                if (abs(g_touchStartX - cx) <= r && abs(g_touchStartY - cy) <= r) {
+                  g_ctx.config.setProfile(next ? g_ctx.config.nextEnabledProfile()
+                                               : g_ctx.config.prevEnabledProfile());
+                  adjustDirtyTick = g_ctx.tickID;
+                }
+              }
+            }
+
+            // tapping a +/- button steps its value
             for (int i = 0; i < page.valueCount; i++) {
               auto& value = page.values[i];
 
               if (value.names) {
                 // named values have one wide toggle button
                 int bx, by, bw, bh;
-                widget::adjustToggleRect(i, bx, by, bw, bh);
+                widget::adjustToggleRect(page, screenWidth, i, bx, by, bw, bh);
                 if (g_touchStartX >= bx && g_touchStartX <= bx + bw && g_touchStartY >= by - px(8) &&
                     g_touchStartY <= by + bh + px(8)) {
                   widget::adjustToggle(g_ctx.config, value);
@@ -899,7 +910,7 @@ void loop() {
 
               for (int plus = 0; plus <= 1; plus++) {
                 int cx, cy;
-                widget::adjustButtonCenter(i, plus, cx, cy);
+                widget::adjustButtonCenter(page, screenWidth, i, plus, cx, cy);
                 auto r = px(widget::adjust_button_r) * 3 / 2;
                 if (abs(g_touchStartX - cx) <= r && abs(g_touchStartY - cy) <= r) {
                   value.set(g_ctx.config, value.get(g_ctx.config) + (plus ? value.step : -value.step));
