@@ -789,11 +789,13 @@ void loop() {
         }
       }
 
-      // starting a new shot clears any lingering feedback
+      // starting a real shot clears any lingering feedback and brings up the
+      // brew screen wherever we are, the pour screen already shows the shot
+      // so it stays, and armed water pours go to the hot water page instead
       if (g_ctx.machineState == MachineState::espresso && lastState != MachineState::espresso) {
         g_ctx.feedback = FeedbackType::none;
         g_ctx.feedbackPreview = false;
-        if (g_ctx.screen == ScreenID::feedback) {
+        if (!g_ctx.waterPourArmed && g_ctx.screen != ScreenID::pour) {
           g_ctx.screen = ScreenID::brew;
         }
       }
