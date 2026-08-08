@@ -16,6 +16,7 @@ static const char* orientation_key = "orientation";
 static const char* flush_seconds_key = "flush_seconds";
 static const char* require_scale_key = "require_scale";
 static const char* stop_lag_key = "lag";
+static const char* lag_samples_key = "lagn";
 static const char* profile_key = "profile";
 static const char* enabled_key = "enabled";
 static const char* error_key = "error";
@@ -77,6 +78,10 @@ static const int default_stop_lag = 10;
 static const int max_stop_lag = 30;
 static const int min_stop_lag = 2;
 
+// how many tuning samples have been folded into the stop lag, drives the
+// adaptation gain down as experience accumulates
+static const int max_lag_samples = 999;
+
 // room for up to this many bytes of enabled profile mask (128 profiles)
 static const int max_profile_mask_bytes = 16;
 
@@ -105,6 +110,7 @@ class Config {
         m_flushSeconds{default_flush_seconds},
         m_requireScale{default_require_scale},
         m_stopLag{default_stop_lag},
+        m_lagSamples{0},
         m_profile{profile_default},
         m_error(ConfigError::none) {
     resetEnabled();
@@ -123,13 +129,14 @@ class Config {
     auto flushSeconds = getUnsignedInt(query, flush_seconds_key);
     auto requireScale = getUnsignedInt(query, require_scale_key);
     auto stopLag = getUnsignedInt(query, stop_lag_key);
+    auto lagSamples = getUnsignedInt(query, lag_samples_key);
     auto profile = getUnsignedInt(query, profile_key);
 
     char enabled[max_profile_mask_bytes * 2 + 1] = "";
     getStringValue(query, enabled_key, enabled, sizeof(enabled));
 
     return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, shotTarget, orientation,
-                  flushSeconds, requireScale, stopLag, profile, enabled);
+                  flushSeconds, requireScale, stopLag, lagSamples, profile, enabled);
   }
 
   static Config fromRequest(AsyncWebServerRequest* request) {
@@ -200,9 +207,10 @@ class Config {
       enabled = param->value().c_str();
     }
 
-    // the web form doesn't carry the learned stop lag, callers copy it over
+    // the web form doesn't carry the learned stop lag or its sample count,
+    // callers copy those over
     return Config(sleepTime, stopWeight, refillLevel, warnLevel, finerDirection, shotMargin, shotTarget, orientation,
-                  flushSeconds, requireScale, 0, 0, enabled);
+                  flushSeconds, requireScale, 0, 0, 0, enabled);
   }
 
   // returns a url encoded version of the config, suitable for writing to EEProm
@@ -251,6 +259,10 @@ class Config {
     if (m_stopLag != 0) {
       size -= strlen(field);
       field += snprintf(field, size, "%s=%d&", stop_lag_key, m_stopLag);
+    }
+    if (m_lagSamples != 0) {
+      size -= strlen(field);
+      field += snprintf(field, size, "%s=%d&", lag_samples_key, m_lagSamples);
     }
     if (m_profile != 0) {
       size -= strlen(field);
@@ -429,6 +441,19 @@ class Config {
     m_version = millis();
   }
 
+  // how many tuning samples the stop lag has absorbed
+  int getLagSamples() {
+    return m_lagSamples;
+  }
+
+  void setLagSamples(int samples) {
+    if (samples < 0 || samples > max_lag_samples) {
+      return;
+    }
+    m_lagSamples = samples;
+    m_version = millis();
+  }
+
   // how long the machine should run a flush for
   int getFlushSeconds() {
     return m_flushSeconds;
@@ -511,7 +536,7 @@ class Config {
 
  private:
   Config(int sleepTime, int stopAtWeight, int refillLevel, int warnLevel, int finerDirection, int shotMargin,
-         int shotTarget, int orientation, int flushSeconds, int requireScale, int stopLag, int profile,
+         int shotTarget, int orientation, int flushSeconds, int requireScale, int stopLag, int lagSamples, int profile,
          const char* enabled)
       : m_sleepTime{sleepTime},
         m_stopWeight{stopAtWeight},
@@ -524,6 +549,7 @@ class Config {
         m_flushSeconds{flushSeconds},
         m_requireScale{requireScale},
         m_stopLag{stopLag},
+        m_lagSamples{lagSamples},
         m_profile{profile},
         m_error{ConfigError::none} {
     setEnabledFromHex(enabled);
@@ -579,6 +605,10 @@ class Config {
 
     if (m_stopLag < min_stop_lag || m_stopLag > max_stop_lag) {
       m_stopLag = default_stop_lag;
+    }
+
+    if (m_lagSamples < 0 || m_lagSamples > max_lag_samples) {
+      m_lagSamples = 0;
     }
 
     if (m_flushSeconds == 0) {
@@ -777,6 +807,9 @@ class Config {
 
   // the predictive stop lead in tenths of a second, auto tuned
   int m_stopLag;
+
+  // how many tuning samples the lag has absorbed
+  int m_lagSamples;
 
   // the selected profile, 1-based index into the compiled in profiles
   int m_profile;

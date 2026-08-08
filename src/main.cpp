@@ -286,7 +286,8 @@ class CaptiveRequestHandler : public AsyncWebHandler {
       res->print(
           "<!doctype html><html><head><meta name=viewport content='width=device-width, initial-scale=1'>"
           "<title>GNAT Shots</title></head><body style='font-family:sans-serif'>");
-      res->printf("<h3>Shots &mdash; stop lag %0.1fs</h3>", g_ctx.config.stopLagSeconds());
+      res->printf("<h3>Shots &mdash; stop lag %0.1fs (%d samples)</h3>", g_ctx.config.stopLagSeconds(),
+                  g_ctx.config.getLagSamples());
       res->print(
           "<table border=1 cellpadding=6 cellspacing=0>"
           "<tr><th>#</th><th>Target g</th><th>Stopped at g</th><th>Rate g/s</th><th>Settled g</th>"
@@ -315,6 +316,7 @@ class CaptiveRequestHandler : public AsyncWebHandler {
         // carry ours over
         newConfig.setProfile(g_ctx.config.getProfile());
         newConfig.setStopLag(g_ctx.config.getStopLag());
+        newConfig.setLagSamples(g_ctx.config.getLagSamples());
 
         // no errors? save our new config
         if (newConfig.getError() == ConfigError::none) {
@@ -654,9 +656,13 @@ const unsigned long CMD_TIMEOUT = 2000 / TICK_TARGET;
 const unsigned long PROFILE_SETTLE_TICKS = 3000 / TICK_TARGET;
 
 // the stop lag (how far the predictive stop leads the scale) lives in config
-// and tunes itself: after this many settled shots we nudge the lag from the
-// batch and start collecting again, slow on purpose to avoid overfitting
-const int LAG_BATCH = 5;
+// and tunes itself from a rolling window of settled shots: the window median
+// feeds an update whose gain decays with the persisted sample count, so early
+// shots move (and write) the lag freely while a settled lag rarely changes
+const int LAG_WINDOW = 8;
+
+// the gain never decays below 1/this, so the lag keeps adapting slowly
+const int LAG_GAIN_FLOOR = 16;
 
 // how long after a pour ends before we read the settled weight
 const unsigned long SETTLE_DELAY_TICKS = 5000 / TICK_TARGET;
@@ -699,11 +705,13 @@ void loop() {
   double stopAtRate = 0;
   int stopLagUsed = 0;
 
-  // pending settled weight measurement and the batch of implied lags
+  // pending settled weight measurement and the rolling window of implied
+  // lags, the persisted sample count drives the adaptation gain down
   unsigned long settleTick = 0;
   double settleTarget = 0;
-  double lagSamples[LAG_BATCH];
-  int lagSampleCount = 0;
+  double lagWindow[LAG_WINDOW];
+  int lagWindowCount = 0;
+  int lagSampleCount = g_ctx.config.getLagSamples();
 
   while (true) {
     while (xQueueReceive(updateQ, (void*)&d, 0) == pdTRUE) {
@@ -960,23 +968,40 @@ void loop() {
             fabs(settled - settleTarget) < 5.0) {
           auto implied = stopLagUsed / 10.0 + (settled - settleTarget) / stopAtRate;
           implied = fmin(fmax(implied, min_stop_lag / 10.0), max_stop_lag / 10.0);
-          lagSamples[lagSampleCount++] = implied;
-          Serial.printf("[LAG] sample %d/%d: settled %0.1f target %0.0f implied %0.2fs\n", lagSampleCount, LAG_BATCH,
-                        settled, settleTarget, implied);
+          lagWindow[lagWindowCount % LAG_WINDOW] = implied;
+          lagWindowCount++;
 
-          // a full batch nudges the stored lag halfway to the batch mean,
-          // then we start collecting fresh
-          if (lagSampleCount >= LAG_BATCH) {
-            double mean = 0;
-            for (int i = 0; i < LAG_BATCH; i++) {
-              mean += lagSamples[i];
+          // the window median is what we chase, robust against the outliers
+          // a single strange shot leaves behind
+          int n = min(lagWindowCount, LAG_WINDOW);
+          double sorted[LAG_WINDOW];
+          for (int i = 0; i < n; i++) {
+            sorted[i] = lagWindow[i];
+            for (int j = i; j > 0 && sorted[j] < sorted[j - 1]; j--) {
+              auto t = sorted[j];
+              sorted[j] = sorted[j - 1];
+              sorted[j - 1] = t;
             }
-            mean /= LAG_BATCH;
-            auto lag = g_ctx.config.stopLagSeconds() + (mean - g_ctx.config.stopLagSeconds()) / 2;
-            g_ctx.config.setStopLag(int(round(lag * 10)));
+          }
+          auto median = (n % 2) ? sorted[n / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2;
+
+          // early samples move the lag fully, the gain decays with the
+          // persisted sample count so a settled lag barely moves
+          auto gain = 1.0 / min(lagSampleCount + 1, LAG_GAIN_FLOOR);
+          auto lag = g_ctx.config.stopLagSeconds() + gain * (median - g_ctx.config.stopLagSeconds());
+          lagSampleCount = min(lagSampleCount + 1, max_lag_samples);
+
+          auto tenths = int(round(lag * 10));
+          Serial.printf("[LAG] sample %d implied %0.2f median %0.2f gain %0.2f lag %0.1fs\n", lagSampleCount, implied,
+                        median, gain, tenths / 10.0);
+
+          // only hit flash when the rounded lag actually changes, frequent
+          // early on and then rarely as the value settles
+          if (tenths != g_ctx.config.getStopLag()) {
+            g_ctx.config.setStopLag(tenths);
+            g_ctx.config.setLagSamples(lagSampleCount);
             writeConfig(g_ctx.config);
-            Serial.printf("[LAG] tuned to %0.1fs from batch mean %0.2fs\n", g_ctx.config.stopLagSeconds(), mean);
-            lagSampleCount = 0;
+            Serial.printf("[LAG] persisted %0.1fs after %d samples\n", g_ctx.config.stopLagSeconds(), lagSampleCount);
           }
         }
       }
