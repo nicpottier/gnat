@@ -4,6 +4,7 @@
 #include <profiles.h>
 #include <widget/Icons.h>
 #include <widget/Theme.h>
+#include <widget/Units.h>
 #include <widget/Widget.h>
 
 namespace widget {
@@ -19,7 +20,14 @@ struct AdjustValue {
   int (*get)(Config&);
   void (*set)(Config&, int);
   const char* const* names;
+
+  // temperature values store celsius and display per the units setting
+  bool temp;
 };
+
+// what kind of page this is: standard value rows, the custom profile
+// cycler, or the custom hot water preset page
+enum class AdjustPageKind : uint8_t { values, profile, hot_water };
 
 // a swipeable page of up to two adjustable values with its own colors, an
 // optional icon shown inline in the header band and optional help text
@@ -38,6 +46,8 @@ struct AdjustPage {
   // centered pages stack the label over a centered control instead of the
   // label left / control right layout
   bool centered;
+
+  AdjustPageKind kind;
 };
 
 static const AdjustValue water_adjust_values[] = {
@@ -63,6 +73,61 @@ static const AdjustValue grind_adjust_values[] = {
      [](Config& c, int v) { c.setFinerDirection(v); }, direction_names},
 };
 
+static const AdjustValue steam_adjust_values[] = {
+    {"Temp", "C", 1, min_steam_temp, max_steam_temp, [](Config& c) { return c.getSteamTemp(); },
+     [](Config& c, int v) { c.setSteamTemp(v); }, nullptr, true},
+    {"Time", "s", 10, min_steam_seconds, max_steam_seconds, [](Config& c) { return c.getSteamSeconds(); },
+     [](Config& c, int v) { c.setSteamSeconds(v); }},
+};
+
+// the hot water page toggles between named presets rather than raw numbers,
+// tea temperatures on the first row and common cup sizes on the second
+struct HotWaterPreset {
+  const char* name;
+  int value;
+};
+
+// only temps the group can actually deliver: with the machine's 98C frame
+// ceiling and delivery losses, anything much past 80C in the cup is out of
+// reach through the group head
+static const HotWaterPreset hot_water_teas[] = {
+    {"Delicate Tea", 71},
+    {"Green Tea", 79},
+};
+static const int hot_water_tea_count = sizeof(hot_water_teas) / sizeof(hot_water_teas[0]);
+
+// the machine's volume field is a single byte, bigger presets pour in 250ml
+// rounds, one press of the hot water button each
+static const int hot_water_pour_max = 250;
+
+static const HotWaterPreset hot_water_sizes[] = {
+    {"Teacup", 180},
+    {"Cup", 240},
+    {"Mug", 480},
+};
+static const int hot_water_size_count = sizeof(hot_water_sizes) / sizeof(hot_water_sizes[0]);
+
+// the preset closest to the current value, so values set elsewhere (web
+// form, machine) still land on a sensible preset
+inline int hotWaterNearest(const HotWaterPreset* presets, int count, int value) {
+  int best = 0;
+  for (int i = 1; i < count; i++) {
+    if (abs(presets[i].value - value) < abs(presets[best].value - value)) {
+      best = i;
+    }
+  }
+  return best;
+}
+
+// the full width toggle rows on the hot water page, shared with hit
+// testing: tea temp, cup size, then the pour from group action
+inline void adjustHotWaterRect(int width, int row, int& x, int& y, int& w, int& h) {
+  x = px(10);
+  y = px(38 + row * 32);
+  w = width - px(20);
+  h = px(28);
+}
+
 static const AdjustValue machine_adjust_values[] = {
     {"Sleep", "m", 5, 5, max_sleep_time, [](Config& c) { return c.getSleepTime(); },
      [](Config& c, int v) { c.setSleepTime(v); }},
@@ -72,7 +137,12 @@ static const AdjustValue machine_adjust_values[] = {
 
 static const char* orientation_names[] = {"Normal", "Flipped"};
 
+static const char* units_names[] = {"Metric", "Imperial"};
+
+// orientation sits last so the reboot notice below reads against it
 static const AdjustValue app_adjust_values[] = {
+    {"Units", "", 1, units_metric, units_imperial, [](Config& c) { return c.getUnits(); },
+     [](Config& c, int v) { c.setUnits(v); }, units_names},
     {"Orientation", "", 1, orientation_normal, orientation_flipped, [](Config& c) { return c.getOrientation(); },
      [](Config& c, int v) { c.setOrientation(v); }, orientation_names},
 };
@@ -84,29 +154,39 @@ const uint32_t grind_page_color = 0x7A77;
 const uint32_t machine_page_color = 0x4A69;
 const uint32_t app_page_color = 0x032C;
 const uint32_t profile_page_color = 0x8926;
+const uint32_t steam_page_color = 0x63D1;
+const uint32_t hot_water_page_color = 0x1B6D;
 
 static const AdjustPage adjust_pages[] = {
-    // a null values list marks the custom profile page, which cycles through
-    // the enabled profiles with prev / next buttons instead of value rows
-    {"Profile", TFT_WHITE, profile_page_color, profile_page_color, TFT_WHITE, TFT_WHITE, drawMug, nullptr, 0},
+    {"Hot Water", TFT_WHITE, hot_water_page_color, hot_water_page_color, TFT_WHITE, TFT_WHITE, drawDrop, nullptr, 0,
+     nullptr, false, AdjustPageKind::hot_water},
+    {"Profile", TFT_WHITE, profile_page_color, profile_page_color, TFT_WHITE, TFT_WHITE, drawMug, nullptr, 0, nullptr,
+     false, AdjustPageKind::profile},
     {"Water Levels", TFT_WHITE, theme.water_color, theme.water_color, TFT_WHITE, TFT_WHITE, drawDrop,
      water_adjust_values, 2},
     {"Espresso", TFT_WHITE, espresso_page_color, espresso_page_color, TFT_WHITE, TFT_WHITE, drawMug,
      espresso_adjust_values, 2},
     {"Grind Alerts", TFT_WHITE, grind_page_color, grind_page_color, TFT_WHITE, TFT_WHITE, drawGear,
      grind_adjust_values, 2},
+    {"Steam", TFT_WHITE, steam_page_color, steam_page_color, TFT_WHITE, TFT_WHITE, drawPitcher, steam_adjust_values,
+     2},
     {"Machine", TFT_WHITE, machine_page_color, machine_page_color, TFT_WHITE, TFT_WHITE, drawPower,
      machine_adjust_values, 2},
-    {"App", TFT_WHITE, app_page_color, app_page_color, TFT_WHITE, TFT_WHITE, drawSliders, app_adjust_values, 1,
-     "Flipping orientation reboots your gnat", true},
+    {"App", TFT_WHITE, app_page_color, app_page_color, TFT_WHITE, TFT_WHITE, drawSliders, app_adjust_values, 2,
+     "Flipping orientation reboots your gnat"},
 };
 static const int adjust_page_count = sizeof(adjust_pages) / sizeof(adjust_pages[0]);
+
+// the hot water page sits first so it's one swipe away and can be pulled up
+// when the machine starts a hot water pour
+const int adjust_hot_water_page = 0;
 
 // button geometry in baseline design units, shared with the touch hit testing
 const int adjust_button_r = 16;
 
-// the header band height in design units
-const int adjust_header_h = 40;
+// the header band height in design units, tight enough to leave a help
+// message line under the controls
+const int adjust_header_h = 34;
 
 // button centers are anchored to the actual panel width: right aligned on
 // the standard pages, centered under the label on centered pages
@@ -116,7 +196,7 @@ inline void adjustButtonCenter(const AdjustPage& page, int width, int row, bool 
     cy = px(95 + row * 40);
   } else {
     cx = width - px(plus ? 26 : 121);
-    cy = px(70 + row * 40);
+    cy = px(62 + row * 36);
   }
 }
 
@@ -156,13 +236,29 @@ class AdjustFields : public Widget {
         m_height{height} {};
 
   bool tick(data::Context ctx, unsigned long tickID, unsigned long millis) {
+    bool changed = false;
+
+    // fill progress and arming state on the hot water page
+    auto pouring = ctx.machineState == MachineState::hot_water ||
+                   (ctx.waterPourArmed && ctx.machineState == MachineState::espresso);
+    auto scaleConnected = ctx.getScaleBLEState() == BLEState::connected;
+    auto weight = int(ctx.currentWeight);
+    if (pouring != m_pouring || ctx.waterPourArmed != m_armed || scaleConnected != m_scaleConnected ||
+        (pouring && weight != m_weight)) {
+      m_pouring = pouring;
+      m_armed = ctx.waterPourArmed;
+      m_scaleConnected = scaleConnected;
+      m_weight = weight;
+      changed = true;
+    }
+
     if (ctx.adjustPage != m_page || ctx.config.getVersion() != m_version) {
       m_page = ctx.adjustPage;
       m_version = ctx.config.getVersion();
       m_config = ctx.config;
-      return true;
+      changed = true;
     }
-    return false;
+    return changed;
   }
 
   void paint(TFT_eSPI& tft) {
@@ -190,8 +286,14 @@ class AdjustFields : public Widget {
 
     tft.setTextColor(page.textColor, page.bgColor);
 
-    if (!page.values) {
+    if (page.kind == AdjustPageKind::profile) {
       paintProfile(tft, page);
+      tft.setTextDatum(TL_DATUM);
+      return;
+    }
+
+    if (page.kind == AdjustPageKind::hot_water) {
+      paintHotWater(tft, page);
       tft.setTextDatum(TL_DATUM);
       return;
     }
@@ -227,7 +329,12 @@ class AdjustFields : public Widget {
       drawButton(tft, cxMinus, cy, false, page);
 
       char buffer[16];
-      snprintf(buffer, 16, "%d%s", value.get(m_config), value.unit);
+      if (value.temp) {
+        auto imperial = m_config.isImperial();
+        snprintf(buffer, 16, "%d%s", displayTemp(value.get(m_config), imperial), tempUnit(imperial));
+      } else {
+        snprintf(buffer, 16, "%d%s", value.get(m_config), value.unit);
+      }
       tft.setFreeFont(FONT_BODY);
       tft.setTextDatum(MC_DATUM);
       tft.drawString(buffer, (cxMinus + cxPlus) / 2, cy);
@@ -238,13 +345,50 @@ class AdjustFields : public Widget {
     if (page.help) {
       tft.setFreeFont(FONT_BODY_SM);
       tft.setTextDatum(TC_DATUM);
-      tft.drawString(page.help, m_width / 2, m_height - px(22));
+      tft.drawString(page.help, m_width / 2, m_height - px(16));
     }
 
     tft.setTextDatum(TL_DATUM);
   }
 
  private:
+  // the hot water page: tea temperature and cup size toggles over the pour
+  // from group action, which reads as live progress while water is running
+  void paintHotWater(TFT_eSPI& tft, const AdjustPage& page) {
+    auto imperial = m_config.isImperial();
+    auto& tea = hot_water_teas[hotWaterNearest(hot_water_teas, hot_water_tea_count, m_config.getWaterTemp())];
+    auto& size = hot_water_sizes[hotWaterNearest(hot_water_sizes, hot_water_size_count, m_config.getWaterVol())];
+
+    char teaLabel[48];
+    snprintf(teaLabel, 48, "%s (%d%s)", tea.name, displayTemp(tea.value, imperial), tempUnit(imperial));
+    char sizeLabel[32];
+    snprintf(sizeLabel, 32, "%s (%d%s)", size.name, displayVol(size.value, imperial), volUnit(imperial));
+
+    char action[24];
+    if (m_pouring && m_scaleConnected) {
+      snprintf(action, 24, "%d / %dg", m_weight, m_config.getWaterVol());
+    } else if (m_armed) {
+      snprintf(action, 24, "Press Espresso");
+    } else {
+      snprintf(action, 24, "Pour from Group");
+    }
+    const char* labels[3] = {teaLabel, sizeLabel, action};
+
+    for (int row = 0; row < 3; row++) {
+      int bx, by, bw, bh;
+      adjustHotWaterRect(m_width, row, bx, by, bw, bh);
+      tft.fillRoundRect(bx, by, bw, bh, px(8), page.buttonColor);
+      tft.setTextColor(page.bgColor, page.buttonColor);
+      tft.setFreeFont(FONT_BODY);
+      if (tft.textWidth(labels[row]) > bw - px(8)) {
+        tft.setFreeFont(FONT_BODY_SM);
+      }
+      tft.setTextDatum(MC_DATUM);
+      tft.drawString(labels[row], bx + bw / 2, by + bh / 2);
+    }
+    tft.setTextColor(page.textColor, page.bgColor);
+  }
+
   // the profile page: the selected profile's name with prev / next buttons
   // and its position within the enabled set
   void paintProfile(TFT_eSPI& tft, const AdjustPage& page) {
@@ -299,6 +443,12 @@ class AdjustFields : public Widget {
   unsigned long m_version = 0;
   int m_width;
   int m_height;
+
+  // live fill state for the hot water page
+  bool m_pouring = false;
+  bool m_armed = false;
+  bool m_scaleConnected = false;
+  int m_weight = 0;
 };
 
 }  // namespace widget

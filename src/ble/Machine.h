@@ -10,6 +10,8 @@ class Machine {
   virtual bool setRefillLevel(int mm) = 0;
   virtual bool setProfile(int idx) = 0;
   virtual bool setFlushSeconds(int seconds) = 0;
+  virtual bool setShotSettings(int steamTemp, int steamSeconds, int waterTemp, int waterVol) = 0;
+  virtual bool pourWater(int temp, int vol) = 0;
 };
 
 }

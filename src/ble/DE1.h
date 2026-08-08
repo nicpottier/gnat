@@ -14,6 +14,7 @@ const auto de1_sample_uuid = "0xa00d";
 const auto de1_header_uuid = "0xa00f";
 const auto de1_frame_uuid = "0xa010";
 const auto de1_mmr_write_uuid = "0xa006";
+const auto de1_shot_settings_uuid = "0xa00b";
 
 // MMR register holding the flush timeout, value is tenths of a second
 const uint32_t de1_mmr_flush_timeout = 0x803848;
@@ -25,6 +26,9 @@ const uint8_t de1_stop_cmd = 0x02;
 // configured value is set, without this write the machine falls back to a higher
 // stored threshold and asks for water sooner than it needs to
 const uint8_t de1_default_refill_level_mm = 3;
+
+// how long hot water may run before shutting off, in seconds
+const uint8_t de1_hot_water_length_s = 60;
 
 class DE1 : public Device, public Machine {
  public:
@@ -104,6 +108,60 @@ class DE1 : public Device, public Machine {
       return writeFlushTimeout();
     }
     return true;
+  }
+
+  bool setShotSettings(int steamTemp, int steamSeconds, int waterTemp, int waterVol) {
+    if (steamTemp < 0 || steamTemp > 170 || steamSeconds < 0 || steamSeconds > 255 || waterTemp < 0 ||
+        waterTemp > 100 || waterVol < 0 || waterVol > 500) {
+      return false;
+    }
+    m_steamTemp = steamTemp;
+    m_steamSeconds = steamSeconds;
+    m_waterTemp = waterTemp;
+    m_waterVol = waterVol;
+
+    // if we are connected, update the machine immediately
+    if (m_settingsChar) {
+      return writeShotSettings();
+    }
+    return true;
+  }
+
+  // uploads a temporary water profile: one flow controlled frame at the
+  // given mix temp, no pressure limit, long enough to cover the volume with
+  // margin so the frame itself backstops a missing scale. the regular
+  // profile should be re-uploaded via setProfile once the pour is done
+  bool pourWater(int temp, int vol) {
+    if (!m_headerChar || !m_frameChar || temp < 1 || temp > 100 || vol < 1 || vol > 500) {
+      return false;
+    }
+
+    // one frame, no preinfuse, no minimum pressure, max flow 10 ml/s
+    uint8_t header[5] = {1, 1, 0, 0, 0xA0};
+    if (!m_headerChar->writeValue(header, sizeof(header), true)) {
+      return false;
+    }
+
+    // water sheds heat crossing the group and the air on the way to the cup,
+    // keeping roughly three quarters of its rise over room temp, so aim
+    // above the target to land near it, capped at the machine's ceiling,
+    // which makes the hottest presets best effort
+    int frameTemp = min(98, 20 + ((temp - 20) * 4) / 3);
+
+    // flow control (CtrlF) ignoring the pressure limit (IgnoreLimit) at
+    // 8 ml/s, quick and it holds temperature better than a slow crawl,
+    // frame length covers the volume plus slack
+    uint8_t secs = min(120, vol / 8 + 15);
+    uint8_t frame[8] = {0, 0x41, 8 * 16, uint8_t(frameTemp * 2), uint8_t(0x80 | secs), 0, 0, 0};
+    if (!m_frameChar->writeValue(frame, sizeof(frame), true)) {
+      return false;
+    }
+
+    // profiles close with a tail frame at the index after the last frame
+    // carrying the max total volume, without it the machine refuses to run
+    uint16_t maxVol = min(vol + 50, 1023);
+    uint8_t tail[8] = {1, uint8_t((maxVol >> 8) & 0x3), uint8_t(maxVol & 0xFF), 0, 0, 0, 0, 0};
+    return m_frameChar->writeValue(tail, sizeof(tail), true);
   }
 
   void stateUpdate(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* d, size_t length, bool isNotify) {
@@ -190,6 +248,10 @@ class DE1 : public Device, public Machine {
           m_mmrChar = ch;
         }
 
+        if (ch->getUUID().toString() == de1_shot_settings_uuid) {
+          m_settingsChar = ch;
+        }
+
         if (ch->canNotify()) {
           Serial.print("  CAN NOTIFY");
           // state update
@@ -246,6 +308,14 @@ class DE1 : public Device, public Machine {
       }
     }
 
+    // push our steam and hot water settings
+    if (m_settingsChar) {
+      if (writeShotSettings()) {
+        Serial.printf("[%s] set shot settings: steam %dC %ds, water %dC %dml\n", getName().c_str(), m_steamTemp,
+                      m_steamSeconds, m_waterTemp, m_waterVol);
+      }
+    }
+
     // load our selected profile onto the machine
     if (m_headerChar && m_frameChar) {
       if (uploadProfile()) {
@@ -263,6 +333,7 @@ class DE1 : public Device, public Machine {
     m_headerChar = nullptr;
     m_frameChar = nullptr;
     m_mmrChar = nullptr;
+    m_settingsChar = nullptr;
   }
 
   void selfRegister(Devices* devices) {
@@ -318,6 +389,26 @@ class DE1 : public Device, public Machine {
     return writeMMR(de1_mmr_flush_timeout, m_flushSeconds * 10);
   }
 
+  // the ShotSettings characteristic: a settings bitmask, steam temp and
+  // length, hot water temp, volume and length, target espresso volume, then
+  // a big endian U16P8 group temp (0, the profile owns group temp)
+  bool writeShotSettings() {
+    uint8_t packet[9] = {0};
+    packet[1] = m_steamTemp;
+    packet[2] = m_steamSeconds;
+    packet[3] = m_waterTemp;
+    // the volume field is a single byte, oversized settings split into even
+    // rounds under the cap, one hot water press each
+    auto vol = m_waterVol;
+    if (vol > 250) {
+      vol = m_waterVol / ((m_waterVol + 249) / 250);
+    }
+    packet[4] = vol;
+    packet[5] = de1_hot_water_length_s;
+    return m_settingsChar->writeValue(packet, sizeof(packet), true);
+  }
+
+  NimBLERemoteCharacteristic* m_settingsChar = nullptr;
   NimBLERemoteCharacteristic* m_cmdChar = nullptr;
   NimBLERemoteCharacteristic* m_stateChar = nullptr;
   NimBLERemoteCharacteristic* m_waterChar = nullptr;
@@ -328,6 +419,10 @@ class DE1 : public Device, public Machine {
   uint8_t m_refillLevelMm = de1_default_refill_level_mm;
   int m_profileIdx = 0;
   int m_flushSeconds = 3;
+  int m_steamTemp = 150;
+  int m_steamSeconds = 120;
+  int m_waterTemp = 85;
+  int m_waterVol = 120;
 };
 
 }  // namespace ble
