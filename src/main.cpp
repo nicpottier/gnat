@@ -735,6 +735,22 @@ void loop() {
         }
       }
 
+      // without a scale we can't stop at weight, refuse to run the shot,
+      // stopping the machine and telling the user why
+      if (g_ctx.config.requireScale() && g_ctx.machineState == MachineState::espresso &&
+          g_ctx.getScaleBLEState() != BLEState::connected) {
+        if (g_ctx.tickID - lastStop > CMD_TIMEOUT) {
+          auto stop = cmd::CommandRequest::newStopMachineCommand();
+          xQueueSend(cmdQ, &stop, 10);
+          lastStop = g_ctx.tickID;
+
+          g_ctx.feedback = FeedbackType::no_scale;
+          if (g_ctx.screen == ScreenID::brew || g_ctx.screen == ScreenID::pour) {
+            g_ctx.screen = ScreenID::feedback;
+          }
+        }
+      }
+
       // track how long we pour so we can give grind feedback after the shot
       if (g_ctx.machineState == MachineState::espresso && g_ctx.machineSubstate == MachineSubstate::pouring &&
           lastSubstate != MachineSubstate::pouring) {
