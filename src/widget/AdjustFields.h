@@ -98,7 +98,9 @@ static const int hot_water_tea_count = sizeof(hot_water_teas) / sizeof(hot_water
 static const int hot_water_pour_max = 250;
 
 static const HotWaterPreset hot_water_sizes[] = {
-    {"Demitasse", 90}, {"Small Cup", 120}, {"Teacup", 180}, {"Mug", 240}, {"Carafe", 500},
+    {"Teacup", 180},
+    {"Cup", 240},
+    {"Mug", 480},
 };
 static const int hot_water_size_count = sizeof(hot_water_sizes) / sizeof(hot_water_sizes[0]);
 
@@ -117,7 +119,7 @@ inline int hotWaterNearest(const HotWaterPreset* presets, int count, int value) 
 // the full width toggle rows on the hot water page, shared with hit testing
 inline void adjustHotWaterRect(int width, int row, int& x, int& y, int& w, int& h) {
   x = px(10);
-  y = px(48 + row * 40);
+  y = px(40 + row * 36);
   w = width - px(20);
   h = px(32);
 }
@@ -133,11 +135,12 @@ static const char* orientation_names[] = {"Normal", "Flipped"};
 
 static const char* units_names[] = {"Metric", "Imperial"};
 
+// orientation sits last so the reboot notice below reads against it
 static const AdjustValue app_adjust_values[] = {
-    {"Orientation", "", 1, orientation_normal, orientation_flipped, [](Config& c) { return c.getOrientation(); },
-     [](Config& c, int v) { c.setOrientation(v); }, orientation_names},
     {"Units", "", 1, units_metric, units_imperial, [](Config& c) { return c.getUnits(); },
      [](Config& c, int v) { c.setUnits(v); }, units_names},
+    {"Orientation", "", 1, orientation_normal, orientation_flipped, [](Config& c) { return c.getOrientation(); },
+     [](Config& c, int v) { c.setOrientation(v); }, orientation_names},
 };
 
 // a coffee brown, a grind purple, a steel gray, a deep teal and a burgundy
@@ -165,7 +168,8 @@ static const AdjustPage adjust_pages[] = {
      2},
     {"Machine", TFT_WHITE, machine_page_color, machine_page_color, TFT_WHITE, TFT_WHITE, drawPower,
      machine_adjust_values, 2},
-    {"App", TFT_WHITE, app_page_color, app_page_color, TFT_WHITE, TFT_WHITE, drawSliders, app_adjust_values, 2},
+    {"App", TFT_WHITE, app_page_color, app_page_color, TFT_WHITE, TFT_WHITE, drawSliders, app_adjust_values, 2,
+     "Flipping orientation reboots your gnat"},
 };
 static const int adjust_page_count = sizeof(adjust_pages) / sizeof(adjust_pages[0]);
 
@@ -176,8 +180,9 @@ const int adjust_hot_water_page = 0;
 // button geometry in baseline design units, shared with the touch hit testing
 const int adjust_button_r = 16;
 
-// the header band height in design units
-const int adjust_header_h = 40;
+// the header band height in design units, tight enough to leave a help
+// message line under the controls
+const int adjust_header_h = 34;
 
 // button centers are anchored to the actual panel width: right aligned on
 // the standard pages, centered under the label on centered pages
@@ -187,7 +192,7 @@ inline void adjustButtonCenter(const AdjustPage& page, int width, int row, bool 
     cy = px(95 + row * 40);
   } else {
     cx = width - px(plus ? 26 : 121);
-    cy = px(70 + row * 40);
+    cy = px(62 + row * 36);
   }
 }
 
@@ -320,7 +325,7 @@ class AdjustFields : public Widget {
     if (page.help) {
       tft.setFreeFont(FONT_BODY_SM);
       tft.setTextDatum(TC_DATUM);
-      tft.drawString(page.help, m_width / 2, m_height - px(22));
+      tft.drawString(page.help, m_width / 2, m_height - px(16));
     }
 
     tft.setTextDatum(TL_DATUM);
@@ -347,7 +352,7 @@ class AdjustFields : public Widget {
       snprintf(note, 40, "pours as %d x %d%s", pours, displayVol(size.value / pours, imperial), volUnit(imperial));
       tft.setFreeFont(FONT_BODY_SM);
       tft.setTextDatum(TC_DATUM);
-      tft.drawString(note, m_width / 2, m_height - px(18));
+      tft.drawString(note, m_width / 2, m_height - px(16));
     }
 
     for (int row = 0; row < 2; row++) {
