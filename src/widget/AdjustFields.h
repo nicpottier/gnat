@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Config.h>
+#include <profiles.h>
 #include <widget/Icons.h>
 #include <widget/Theme.h>
 #include <widget/Widget.h>
@@ -33,6 +34,10 @@ struct AdjustPage {
   const AdjustValue* values;
   int valueCount;
   const char* help;
+
+  // centered pages stack the label over a centered control instead of the
+  // label left / control right layout
+  bool centered;
 };
 
 static const AdjustValue water_adjust_values[] = {
@@ -68,17 +73,22 @@ static const AdjustValue machine_adjust_values[] = {
 static const char* orientation_names[] = {"Normal", "Flipped"};
 
 static const AdjustValue app_adjust_values[] = {
-    {"Flip", "", 1, orientation_normal, orientation_flipped, [](Config& c) { return c.getOrientation(); },
+    {"Orientation", "", 1, orientation_normal, orientation_flipped, [](Config& c) { return c.getOrientation(); },
      [](Config& c, int v) { c.setOrientation(v); }, orientation_names},
 };
 
-// a coffee brown, a grind purple, a steel gray and a deep teal for these pages
+// a coffee brown, a grind purple, a steel gray, a deep teal and a burgundy
+// for these pages
 const uint32_t espresso_page_color = 0x6A66;
 const uint32_t grind_page_color = 0x7A77;
 const uint32_t machine_page_color = 0x4A69;
 const uint32_t app_page_color = 0x032C;
+const uint32_t profile_page_color = 0x8926;
 
 static const AdjustPage adjust_pages[] = {
+    // a null values list marks the custom profile page, which cycles through
+    // the enabled profiles with prev / next buttons instead of value rows
+    {"Profile", TFT_WHITE, profile_page_color, profile_page_color, TFT_WHITE, TFT_WHITE, drawMug, nullptr, 0},
     {"Water Levels", TFT_WHITE, theme.water_color, theme.water_color, TFT_WHITE, TFT_WHITE, drawDrop,
      water_adjust_values, 2},
     {"Espresso", TFT_WHITE, espresso_page_color, espresso_page_color, TFT_WHITE, TFT_WHITE, drawMug,
@@ -88,7 +98,7 @@ static const AdjustPage adjust_pages[] = {
     {"Machine", TFT_WHITE, machine_page_color, machine_page_color, TFT_WHITE, TFT_WHITE, drawPower,
      machine_adjust_values, 2},
     {"App", TFT_WHITE, app_page_color, app_page_color, TFT_WHITE, TFT_WHITE, drawSliders, app_adjust_values, 1,
-     "Flipping orientation reboots your gnat"},
+     "Flipping orientation reboots your gnat", true},
 };
 static const int adjust_page_count = sizeof(adjust_pages) / sizeof(adjust_pages[0]);
 
@@ -98,17 +108,30 @@ const int adjust_button_r = 16;
 // the header band height in design units
 const int adjust_header_h = 40;
 
-inline void adjustButtonCenter(int row, bool plus, int& cx, int& cy) {
-  cx = px(plus ? 200 : 105);
-  cy = px(70 + row * 40);
+// button centers are anchored to the actual panel width: right aligned on
+// the standard pages, centered under the label on centered pages
+inline void adjustButtonCenter(const AdjustPage& page, int width, int row, bool plus, int& cx, int& cy) {
+  if (page.centered) {
+    cx = width / 2 + (plus ? px(47) : -px(47));
+    cy = px(95 + row * 40);
+  } else {
+    cx = width - px(plus ? 26 : 121);
+    cy = px(70 + row * 40);
+  }
+}
+
+// the prev / next button centers on the profile page, centered on the panel
+inline void adjustProfileButtonCenter(int width, bool next, int& cx, int& cy) {
+  cx = width / 2 + (next ? px(50) : -px(50));
+  cy = px(95);
 }
 
 // the rect a toggle value's single wide button occupies, spanning from the
 // minus button's left edge to the plus button's right edge
-inline void adjustToggleRect(int row, int& x, int& y, int& w, int& h) {
+inline void adjustToggleRect(const AdjustPage& page, int width, int row, int& x, int& y, int& w, int& h) {
   int cxMinus, cxPlus, cy;
-  adjustButtonCenter(row, false, cxMinus, cy);
-  adjustButtonCenter(row, true, cxPlus, cy);
+  adjustButtonCenter(page, width, row, false, cxMinus, cy);
+  adjustButtonCenter(page, width, row, true, cxPlus, cy);
   auto r = px(adjust_button_r);
   x = cxMinus - r;
   y = cy - r;
@@ -167,19 +190,32 @@ class AdjustFields : public Widget {
 
     tft.setTextColor(page.textColor, page.bgColor);
 
+    if (!page.values) {
+      paintProfile(tft, page);
+      tft.setTextDatum(TL_DATUM);
+      return;
+    }
+
     for (int i = 0; i < page.valueCount; i++) {
       auto& value = page.values[i];
-      int cx, cy;
+      int cxMinus, cxPlus, cy;
+      adjustButtonCenter(page, m_width, i, false, cxMinus, cy);
+      adjustButtonCenter(page, m_width, i, true, cxPlus, cy);
 
-      adjustButtonCenter(i, false, cx, cy);
       tft.setFreeFont(FONT_BODY);
-      tft.setTextDatum(CL_DATUM);
-      tft.drawString(value.label, px(10), cy);
+      if (page.centered) {
+        // centered pages stack the label over the control
+        tft.setTextDatum(MC_DATUM);
+        tft.drawString(value.label, m_width / 2, px(62));
+      } else {
+        tft.setTextDatum(CL_DATUM);
+        tft.drawString(value.label, px(10), cy);
+      }
 
       if (value.names) {
         // named values render as one wide toggle button
         int bx, by, bw, bh;
-        adjustToggleRect(i, bx, by, bw, bh);
+        adjustToggleRect(page, m_width, i, bx, by, bw, bh);
         tft.fillRoundRect(bx, by, bw, bh, px(8), page.buttonColor);
         tft.setTextColor(page.bgColor, page.buttonColor);
         tft.setTextDatum(MC_DATUM);
@@ -188,16 +224,15 @@ class AdjustFields : public Widget {
         continue;
       }
 
-      drawButton(tft, cx, cy, false, page);
+      drawButton(tft, cxMinus, cy, false, page);
 
       char buffer[16];
       snprintf(buffer, 16, "%d%s", value.get(m_config), value.unit);
       tft.setFreeFont(FONT_BODY);
       tft.setTextDatum(MC_DATUM);
-      tft.drawString(buffer, px(152), cy);
+      tft.drawString(buffer, (cxMinus + cxPlus) / 2, cy);
 
-      adjustButtonCenter(i, true, cx, cy);
-      drawButton(tft, cx, cy, true, page);
+      drawButton(tft, cxPlus, cy, true, page);
     }
 
     if (page.help) {
@@ -210,6 +245,46 @@ class AdjustFields : public Widget {
   }
 
  private:
+  // the profile page: the selected profile's name with prev / next buttons
+  // and its position within the enabled set
+  void paintProfile(TFT_eSPI& tft, const AdjustPage& page) {
+    auto profile = m_config.getProfile();
+    if (profile >= 1 && profile <= profile_count) {
+      // long names step down a font size, either way they stay centered
+      auto name = profiles[profile - 1].name;
+      tft.setFreeFont(FONT_BODY);
+      if (tft.textWidth(name) > m_width - px(12)) {
+        tft.setFreeFont(FONT_BODY_SM);
+      }
+      tft.setTextDatum(MC_DATUM);
+      tft.drawString(name, m_width / 2, px(62));
+    }
+
+    // where we sit within the enabled profiles
+    int pos = 0;
+    for (int i = 0; i < profile; i++) {
+      pos += m_config.isProfileEnabled(i);
+    }
+    char buffer[16];
+    snprintf(buffer, 16, "%d/%d", pos, m_config.enabledProfileCount());
+    tft.setFreeFont(FONT_BODY);
+    tft.setTextDatum(MC_DATUM);
+    int cxPrev, cxNext, cy;
+    adjustProfileButtonCenter(m_width, false, cxPrev, cy);
+    adjustProfileButtonCenter(m_width, true, cxNext, cy);
+    tft.drawString(buffer, (cxPrev + cxNext) / 2, cy);
+
+    drawArrowButton(tft, cxPrev, cy, false, page);
+    drawArrowButton(tft, cxNext, cy, true, page);
+  }
+
+  void drawArrowButton(TFT_eSPI& tft, int cx, int cy, bool next, const AdjustPage& page) {
+    auto r = px(adjust_button_r);
+    tft.fillCircle(cx, cy, r, page.buttonColor);
+    auto d = next ? 1 : -1;
+    tft.fillTriangle(cx + d * r / 2, cy, cx - d * r / 3, cy - r / 2, cx - d * r / 3, cy + r / 2, page.bgColor);
+  }
+
   void drawButton(TFT_eSPI& tft, int cx, int cy, bool plus, const AdjustPage& page) {
     auto r = px(adjust_button_r);
     tft.fillCircle(cx, cy, r, page.buttonColor);
