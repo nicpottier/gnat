@@ -1,6 +1,7 @@
 #pragma once
 
 #include <widget/Theme.h>
+#include <widget/Units.h>
 #include <widget/Widget.h>
 
 namespace widget {
@@ -22,6 +23,11 @@ class MachineStatus : public Widget {
     auto headTemp = int(ctx.lastSample.headTemp);
     if (headTemp != m_headTemp) {
       m_headTemp = headTemp;
+      changed = true;
+    }
+
+    if (ctx.config.isImperial() != m_imperial) {
+      m_imperial = ctx.config.isImperial();
       changed = true;
     }
 
@@ -50,7 +56,7 @@ class MachineStatus : public Widget {
 
     if (m_lastState == BLEState::connected && m_headTemp > 0) {
       char buffer[10];
-      snprintf(buffer, 10, "%dC", m_headTemp);
+      snprintf(buffer, 10, "%d%s", displayTemp(m_headTemp, m_imperial), tempUnit(m_imperial));
 
       tft.setFreeFont(FONT_BODY_SM);
       tft.setTextColor(theme.text_color, theme.dash_bg_color);
@@ -70,6 +76,7 @@ class MachineStatus : public Widget {
 
   bool m_flash = true;
   int m_headTemp = 0;
+  bool m_imperial = false;
 };
 
 }  // namespace widget

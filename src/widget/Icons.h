@@ -110,6 +110,44 @@ inline void drawClock(TFT_eSPI& tft, int cx, int cy, uint32_t color, uint32_t bg
   }
 }
 
+// a steaming milk pitcher, a tapered jug with a spout, handle and rising steam
+inline void drawPitcher(TFT_eSPI& tft, int cx, int cy, uint32_t color, uint32_t bg) {
+  int stroke = UI_SCALE_PCT >= 150 ? 3 : 2;
+
+  auto rimY = cy - px(1);
+  auto baseY = cy + px(15);
+  auto rimHalf = px(10);
+  auto baseHalf = px(6);
+
+  // handle off the right side, the body draws over its left half
+  for (int i = 0; i < stroke; i++) {
+    tft.drawCircle(cx + rimHalf - px(1), cy + px(6), px(6) - i, color);
+  }
+
+  // tapered body, wider at the rim than the base
+  tft.fillTriangle(cx - rimHalf, rimY, cx + rimHalf, rimY, cx - baseHalf, baseY, color);
+  tft.fillTriangle(cx + rimHalf, rimY, cx + baseHalf, baseY, cx - baseHalf, baseY, color);
+
+  // hollow the body leaving the walls
+  tft.fillTriangle(cx - rimHalf + stroke + 1, rimY + stroke, cx + rimHalf - stroke - 1, rimY + stroke,
+                   cx - baseHalf + stroke + 1, baseY - stroke, bg);
+  tft.fillTriangle(cx + rimHalf - stroke - 1, rimY + stroke, cx + baseHalf - stroke - 1, baseY - stroke,
+                   cx - baseHalf + stroke + 1, baseY - stroke, bg);
+
+  // spout poking up off the left rim
+  tft.fillTriangle(cx - rimHalf - px(4), rimY - px(4), cx - rimHalf + px(3), rimY, cx - rimHalf + px(3), rimY + px(4),
+                   color);
+
+  // steam wisps rising over the rim
+  for (int w = -1; w <= 1; w++) {
+    auto x = cx + w * px(6);
+    for (int i = 0; i < stroke; i++) {
+      tft.drawLine(x + i, rimY - px(6), x - px(2) + i, rimY - px(9), color);
+      tft.drawLine(x - px(2) + i, rimY - px(9), x + i, rimY - px(13), color);
+    }
+  }
+}
+
 // an outlined mug with a handle
 inline void drawMug(TFT_eSPI& tft, int cx, int cy, uint32_t color, uint32_t bg) {
   auto w = px(20);

@@ -497,6 +497,8 @@ void setup() {
   de1->setRefillLevel(g_ctx.config.getRefillLevel());
   de1->setProfile(g_ctx.config.getProfile() - 1);
   de1->setFlushSeconds(g_ctx.config.getFlushSeconds());
+  de1->setShotSettings(g_ctx.config.getSteamTemp(), g_ctx.config.getSteamSeconds(), g_ctx.config.getWaterTemp(),
+                       g_ctx.config.getWaterVol());
 
   s_brewScreen = new Screen{ScreenID::brew};
   s_brewScreen->addWidget(new widget::BrewBackground{screenWidth, screenHeight});
@@ -667,6 +669,14 @@ const int LAG_GAIN_FLOOR = 16;
 // how long after a pour ends before we read the settled weight
 const unsigned long SETTLE_DELAY_TICKS = 5000 / TICK_TARGET;
 
+// hot water fills dispense by weight when a scale is connected: presses
+// within this window continue the same fill instead of taring fresh, and we
+// stop the pour a little early for the stream still in flight
+const unsigned long HOT_WATER_SESSION_MS = 60 * 1000;
+const double HOT_WATER_STOP_EARLY_G = 5;
+
+// an armed group pour disarms itself if espresso is never pressed
+const unsigned long WATER_ARM_TIMEOUT_MS = 5 * 60 * 1000;
 
 // how long in millis the splash screen shows on boot and wake, long enough
 // for the pour animation plus a beat of hold
@@ -712,6 +722,14 @@ void loop() {
   double lagWindow[LAG_WINDOW];
   int lagWindowCount = 0;
   int lagSampleCount = g_ctx.config.getLagSamples();
+
+  // whether we switched to the hot water page ourselves for a pour, and
+  // when the current fill session last saw hot water running
+  bool autoHotWater = false;
+  unsigned long hotWaterSessionMs = 0;
+
+  // when the group pour was armed, for the arm timeout
+  unsigned long waterArmedMs = 0;
 
   while (true) {
     while (xQueueReceive(updateQ, (void*)&d, 0) == pdTRUE) {
@@ -797,11 +815,57 @@ void loop() {
         xQueueSend(cmdQ, &wake, 10);
       }
 
-      // starting a new shot clears any lingering feedback
+      // a fresh hot water fill tares the scale so we can dispense by weight,
+      // another press within the session window continues the same fill
+      if (g_ctx.machineState == MachineState::hot_water && lastState != MachineState::hot_water &&
+          g_ctx.getScaleBLEState() == BLEState::connected &&
+          (hotWaterSessionMs == 0 || millis() - hotWaterSessionMs > HOT_WATER_SESSION_MS)) {
+        auto tare = cmd::CommandRequest::newTareScaleCommand();
+        xQueueSend(cmdQ, &tare, 10);
+      }
+
+      // while hot water runs with a scale, stop at the target weight, a
+      // gram of water being a milliliter, the machine's own volume estimate
+      // is just the backstop
+      if (g_ctx.machineState == MachineState::hot_water) {
+        hotWaterSessionMs = millis();
+        if (g_ctx.getScaleBLEState() == BLEState::connected &&
+            g_ctx.currentWeight >= g_ctx.config.getWaterVol() - HOT_WATER_STOP_EARLY_G &&
+            g_ctx.tickID - lastStop > CMD_TIMEOUT) {
+          Serial.printf("[WATER] stopping at %0.1fg of %dg\n", g_ctx.currentWeight, g_ctx.config.getWaterVol());
+          auto stop = cmd::CommandRequest::newStopMachineCommand();
+          xQueueSend(cmdQ, &stop, 10);
+          lastStop = g_ctx.tickID;
+        }
+      }
+
+      // a hot water pour, from the spout or an armed group pour, pulls up the
+      // hot water page, and we return to brew when it finishes if we auto
+      // switched
+      if (((g_ctx.machineState == MachineState::hot_water && lastState != MachineState::hot_water) ||
+           (g_ctx.waterPourArmed && g_ctx.machineState == MachineState::espresso &&
+            lastState != MachineState::espresso)) &&
+          (g_ctx.screen == ScreenID::brew || g_ctx.screen == ScreenID::pour || g_ctx.screen == ScreenID::adjust)) {
+        g_ctx.adjustPage = widget::adjust_hot_water_page;
+        g_ctx.screen = ScreenID::adjust;
+        autoHotWater = true;
+      }
+      if (autoHotWater &&
+          ((lastState == MachineState::hot_water && g_ctx.machineState != MachineState::hot_water) ||
+           (lastState == MachineState::espresso && g_ctx.machineState != MachineState::espresso))) {
+        autoHotWater = false;
+        if (g_ctx.screen == ScreenID::adjust && g_ctx.adjustPage == widget::adjust_hot_water_page) {
+          g_ctx.screen = ScreenID::brew;
+        }
+      }
+
+      // starting a real shot clears any lingering feedback and brings up the
+      // brew screen wherever we are, the pour screen already shows the shot
+      // so it stays, and armed water pours go to the hot water page instead
       if (g_ctx.machineState == MachineState::espresso && lastState != MachineState::espresso) {
         g_ctx.feedback = FeedbackType::none;
         g_ctx.feedbackPreview = false;
-        if (g_ctx.screen == ScreenID::feedback) {
+        if (!g_ctx.waterPourArmed && g_ctx.screen != ScreenID::pour) {
           g_ctx.screen = ScreenID::brew;
         }
       }
@@ -830,34 +894,42 @@ void loop() {
 
       if (lastSubstate == MachineSubstate::pouring && g_ctx.machineSubstate != MachineSubstate::pouring &&
           pourStart > 0) {
-        // log where the shot landed against the target for stop lag tuning
-        Serial.printf("[SHOT] final weight %0.1f target %d\n", g_ctx.currentWeight, g_ctx.config.getStopWeight());
-
-        // if we stopped this pour, come back for the settled weight once the
-        // drip finishes
-        if (stopIssued) {
-          settleTick = g_ctx.tickID;
-          settleTarget = double(g_ctx.config.getStopWeight());
-        }
-
-        auto seconds = (millis() - pourStart) / (double)1000;
-        g_ctx.feedbackSeconds = seconds;
-        auto target = (double)g_ctx.config.getShotTarget();
-        auto margin = (double)g_ctx.config.getShotMargin();
-        if (fabs(seconds - target) <= 0.5) {
-          g_ctx.feedback = FeedbackType::nailed_it;
-        } else if (seconds <= target - margin) {
-          g_ctx.feedback = FeedbackType::grind_finer;
-        } else if (seconds >= target + margin) {
-          g_ctx.feedback = FeedbackType::grind_coarser;
+        // a group water pour is not a shot: no grind feedback, no lag
+        // tuning sample, restore the real profile and disarm
+        if (g_ctx.waterPourArmed) {
+          g_ctx.waterPourArmed = false;
+          auto restore = cmd::CommandRequest::newProfileCommand(g_ctx.config.getProfile() - 1);
+          xQueueSend(cmdQ, &restore, 10);
         } else {
-          g_ctx.feedback = FeedbackType::none;
-        }
+          // log where the shot landed against the target for stop lag tuning
+          Serial.printf("[SHOT] final weight %0.1f target %d\n", g_ctx.currentWeight, g_ctx.config.getStopWeight());
 
-        // take over the screen with our banner when we have feedback
-        if (g_ctx.feedback != FeedbackType::none &&
-            (g_ctx.screen == ScreenID::brew || g_ctx.screen == ScreenID::pour)) {
-          g_ctx.screen = ScreenID::feedback;
+          // if we stopped this pour, come back for the settled weight once
+          // the drip finishes
+          if (stopIssued) {
+            settleTick = g_ctx.tickID;
+            settleTarget = double(g_ctx.config.getStopWeight());
+          }
+
+          auto seconds = (millis() - pourStart) / (double)1000;
+          g_ctx.feedbackSeconds = seconds;
+          auto target = (double)g_ctx.config.getShotTarget();
+          auto margin = (double)g_ctx.config.getShotMargin();
+          if (fabs(seconds - target) <= 0.5) {
+            g_ctx.feedback = FeedbackType::nailed_it;
+          } else if (seconds <= target - margin) {
+            g_ctx.feedback = FeedbackType::grind_finer;
+          } else if (seconds >= target + margin) {
+            g_ctx.feedback = FeedbackType::grind_coarser;
+          } else {
+            g_ctx.feedback = FeedbackType::none;
+          }
+
+          // take over the screen with our banner when we have feedback
+          if (g_ctx.feedback != FeedbackType::none &&
+              (g_ctx.screen == ScreenID::brew || g_ctx.screen == ScreenID::pour)) {
+            g_ctx.screen = ScreenID::feedback;
+          }
         }
         pourStart = 0;
       }
@@ -925,20 +997,30 @@ void loop() {
         settleTick = 0;
       }
 
-      // if we are brewing, stop when the projected weight reaches the target,
-      // the projection leads the actual weight by our learned stop lag so the
-      // drip lands the shot on the number instead of past it
+      // if we are brewing, stop when the projected weight reaches the
+      // target: a shot stops at the stop weight led by our learned lag, an
+      // armed group water pour at the fill target with a fixed lead
       if (g_ctx.machineState == MachineState::espresso && g_ctx.machineSubstate == MachineSubstate::pouring) {
-        auto target = double(g_ctx.config.getStopWeight());
-        auto projected = g_ctx.currentWeight + fmax(0.0, weightRate) * g_ctx.config.stopLagSeconds();
-        if ((projected >= target || g_ctx.currentWeight > target - 1) && g_ctx.tickID - lastStop > CMD_TIMEOUT) {
-          Serial.printf("[STOP] weight %0.1f rate %0.2f projected %0.1f target %0.0f lag %0.1f\n", g_ctx.currentWeight,
-                        weightRate, projected, target, g_ctx.config.stopLagSeconds());
+        bool stopNow = false;
+        if (g_ctx.waterPourArmed) {
+          stopNow = g_ctx.currentWeight > double(g_ctx.config.getWaterVol()) - HOT_WATER_STOP_EARLY_G;
+        } else {
+          auto target = double(g_ctx.config.getStopWeight());
+          auto projected = g_ctx.currentWeight + fmax(0.0, weightRate) * g_ctx.config.stopLagSeconds();
+          stopNow = projected >= target || g_ctx.currentWeight > target - 1;
+        }
+
+        if (stopNow && g_ctx.tickID - lastStop > CMD_TIMEOUT) {
+          if (!g_ctx.waterPourArmed) {
+            Serial.printf("[STOP] weight %0.1f rate %0.2f target %d lag %0.1f\n", g_ctx.currentWeight, weightRate,
+                          g_ctx.config.getStopWeight(), g_ctx.config.stopLagSeconds());
+          }
           auto stop = cmd::CommandRequest::newStopMachineCommand();
           xQueueSend(cmdQ, &stop, 10);
           lastStop = g_ctx.tickID;
 
-          if (!stopIssued) {
+          // only real shots feed the stop lag tuner
+          if (!stopIssued && !g_ctx.waterPourArmed) {
             stopIssued = true;
             stopAtWeight = g_ctx.currentWeight;
             stopAtRate = fmax(0.0, weightRate);
@@ -1004,6 +1086,14 @@ void loop() {
             Serial.printf("[LAG] persisted %0.1fs after %d samples\n", g_ctx.config.stopLagSeconds(), lagSampleCount);
           }
         }
+      }
+
+      // an armed group pour that never happens disarms itself
+      if (g_ctx.waterPourArmed && g_ctx.machineState != MachineState::espresso &&
+          millis() - waterArmedMs > WATER_ARM_TIMEOUT_MS) {
+        g_ctx.waterPourArmed = false;
+        auto restore = cmd::CommandRequest::newProfileCommand(g_ctx.config.getProfile() - 1);
+        xQueueSend(cmdQ, &restore, 10);
       }
 
       // switching into idle, reset our timeout
@@ -1101,7 +1191,7 @@ void loop() {
             auto& page = widget::adjust_pages[g_ctx.adjustPage];
 
             // the profile page cycles through the enabled profiles
-            if (!page.values) {
+            if (page.kind == widget::AdjustPageKind::profile) {
               for (int next = 0; next <= 1; next++) {
                 int cx, cy;
                 widget::adjustProfileButtonCenter(screenWidth, next, cx, cy);
@@ -1110,6 +1200,41 @@ void loop() {
                   g_ctx.config.setProfile(next ? g_ctx.config.nextEnabledProfile()
                                                : g_ctx.config.prevEnabledProfile());
                   adjustDirtyTick = g_ctx.tickID;
+                }
+              }
+            }
+
+            // the hot water page's rows toggle through their presets, the
+            // action row arms or disarms a pour through the group
+            if (page.kind == widget::AdjustPageKind::hot_water) {
+              for (int row = 0; row < 3; row++) {
+                int bx, by, bw, bh;
+                widget::adjustHotWaterRect(screenWidth, row, bx, by, bw, bh);
+                if (g_touchStartX >= bx && g_touchStartX <= bx + bw && g_touchStartY >= by - px(2) &&
+                    g_touchStartY <= by + bh + px(2)) {
+                  if (row == 0) {
+                    auto idx = widget::hotWaterNearest(widget::hot_water_teas, widget::hot_water_tea_count,
+                                                       g_ctx.config.getWaterTemp());
+                    g_ctx.config.setWaterTemp(widget::hot_water_teas[(idx + 1) % widget::hot_water_tea_count].value);
+                    adjustDirtyTick = g_ctx.tickID;
+                  } else if (row == 1) {
+                    auto idx = widget::hotWaterNearest(widget::hot_water_sizes, widget::hot_water_size_count,
+                                                       g_ctx.config.getWaterVol());
+                    g_ctx.config.setWaterVol(widget::hot_water_sizes[(idx + 1) % widget::hot_water_size_count].value);
+                    adjustDirtyTick = g_ctx.tickID;
+                  } else if (g_ctx.machineState != MachineState::espresso) {
+                    // arm uploads the water profile, disarm restores ours
+                    g_ctx.waterPourArmed = !g_ctx.waterPourArmed;
+                    if (g_ctx.waterPourArmed) {
+                      waterArmedMs = millis();
+                      auto water = cmd::CommandRequest::newWaterProfileCommand(g_ctx.config.getWaterTemp(),
+                                                                              g_ctx.config.getWaterVol());
+                      xQueueSend(cmdQ, &water, 10);
+                    } else {
+                      auto restore = cmd::CommandRequest::newProfileCommand(g_ctx.config.getProfile() - 1);
+                      xQueueSend(cmdQ, &restore, 10);
+                    }
+                  }
                 }
               }
             }
@@ -1152,13 +1277,18 @@ void loop() {
       }
 #endif
 
-      // if our config changed, pass along our new refill level and flush time
+      // if our config changed, pass along our new refill level, flush time
+      // and steam / hot water settings
       if (g_ctx.config.getVersion() != lastConfigVersion) {
         lastConfigVersion = g_ctx.config.getVersion();
         auto refill = cmd::CommandRequest::newRefillLevelCommand(g_ctx.config.getRefillLevel());
         xQueueSend(cmdQ, &refill, 10);
         auto flush = cmd::CommandRequest::newFlushSecondsCommand(g_ctx.config.getFlushSeconds());
         xQueueSend(cmdQ, &flush, 10);
+        auto settings = cmd::CommandRequest::newShotSettingsCommand(
+            g_ctx.config.getSteamTemp(), g_ctx.config.getSteamSeconds(), g_ctx.config.getWaterTemp(),
+            g_ctx.config.getWaterVol());
+        xQueueSend(cmdQ, &settings, 10);
       }
 
       // if our selected profile changed, start (or restart) our settle timer, this

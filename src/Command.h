@@ -16,6 +16,8 @@ enum class CommandType {
   MACHINE_REFILL_LEVEL,
   MACHINE_PROFILE,
   MACHINE_FLUSH_SECONDS,
+  MACHINE_SHOT_SETTINGS,
+  MACHINE_WATER_PROFILE,
 };
 
 class TareScaleCommand {
@@ -108,6 +110,55 @@ class FlushSecondsCommand {
   int m_seconds;
 };
 
+class ShotSettingsCommand {
+ public:
+  ShotSettingsCommand()
+      : m_steamTemp{0},
+        m_steamSeconds{0},
+        m_waterTemp{0},
+        m_waterVol{0} {};
+  ShotSettingsCommand(int steamTemp, int steamSeconds, int waterTemp, int waterVol)
+      : m_steamTemp{steamTemp},
+        m_steamSeconds{steamSeconds},
+        m_waterTemp{waterTemp},
+        m_waterVol{waterVol} {};
+
+  bool execute(ble::Devices *devices) {
+    auto m = devices->getMachine();
+    if (!m) return false;
+    Serial.printf("SENDING SHOT SETTINGS steam %dC %ds water %dC %dml\n", m_steamTemp, m_steamSeconds, m_waterTemp,
+                  m_waterVol);
+    return m->setShotSettings(m_steamTemp, m_steamSeconds, m_waterTemp, m_waterVol);
+  }
+
+ private:
+  int m_steamTemp;
+  int m_steamSeconds;
+  int m_waterTemp;
+  int m_waterVol;
+};
+
+class WaterProfileCommand {
+ public:
+  WaterProfileCommand()
+      : m_temp{0},
+        m_vol{0} {};
+  WaterProfileCommand(int temp, int vol)
+      : m_temp{temp},
+        m_vol{vol} {};
+
+  bool execute(ble::Devices *devices) {
+    auto m = devices->getMachine();
+    if (!m) return false;
+    Serial.printf("SENDING WATER PROFILE %dC %dml\n", m_temp, m_vol);
+    return m->pourWater(m_temp, m_vol);
+  }
+
+ private:
+  int m_temp;
+  int m_vol;
+};
+
 class SleepCommand {
  public:
   SleepCommand(){};
@@ -167,6 +218,10 @@ class CommandRequest {
         return m_profile.execute(devices);
       case CommandType::MACHINE_FLUSH_SECONDS:
         return m_flushSeconds.execute(devices);
+      case CommandType::MACHINE_SHOT_SETTINGS:
+        return m_shotSettings.execute(devices);
+      case CommandType::MACHINE_WATER_PROFILE:
+        return m_waterProfile.execute(devices);
       case CommandType::SLEEP:
         return m_sleep.execute(devices);
       case CommandType::WAKE:
@@ -218,6 +273,18 @@ class CommandRequest {
     return c;
   }
 
+  static CommandRequest newShotSettingsCommand(int steamTemp, int steamSeconds, int waterTemp, int waterVol) {
+    auto c = CommandRequest{CommandType::MACHINE_SHOT_SETTINGS};
+    c.m_shotSettings = ShotSettingsCommand{steamTemp, steamSeconds, waterTemp, waterVol};
+    return c;
+  }
+
+  static CommandRequest newWaterProfileCommand(int temp, int vol) {
+    auto c = CommandRequest{CommandType::MACHINE_WATER_PROFILE};
+    c.m_waterProfile = WaterProfileCommand{temp, vol};
+    return c;
+  }
+
   static CommandRequest newSleepCommand() {
     auto c = CommandRequest{CommandType::SLEEP};
     c.m_sleep = SleepCommand{};
@@ -239,6 +306,8 @@ class CommandRequest {
     RefillLevelCommand m_refillLevel;
     ProfileCommand m_profile;
     FlushSecondsCommand m_flushSeconds;
+    ShotSettingsCommand m_shotSettings;
+    WaterProfileCommand m_waterProfile;
     SleepCommand m_sleep;
     WakeCommand m_wake;
   };
