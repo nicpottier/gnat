@@ -15,6 +15,7 @@ enum class CommandType {
   MACHINE_STOP,
   MACHINE_REFILL_LEVEL,
   MACHINE_PROFILE,
+  MACHINE_FLUSH_SECONDS,
 };
 
 class TareScaleCommand {
@@ -89,6 +90,24 @@ class ProfileCommand {
   int m_idx;
 };
 
+class FlushSecondsCommand {
+ public:
+  FlushSecondsCommand()
+      : m_seconds{0} {};
+  FlushSecondsCommand(int seconds)
+      : m_seconds{seconds} {};
+
+  bool execute(ble::Devices *devices) {
+    auto m = devices->getMachine();
+    if (!m) return false;
+    Serial.printf("SENDING FLUSH SECONDS %d\n", m_seconds);
+    return m->setFlushSeconds(m_seconds);
+  }
+
+ private:
+  int m_seconds;
+};
+
 class SleepCommand {
  public:
   SleepCommand(){};
@@ -146,6 +165,8 @@ class CommandRequest {
         return m_refillLevel.execute(devices);
       case CommandType::MACHINE_PROFILE:
         return m_profile.execute(devices);
+      case CommandType::MACHINE_FLUSH_SECONDS:
+        return m_flushSeconds.execute(devices);
       case CommandType::SLEEP:
         return m_sleep.execute(devices);
       case CommandType::WAKE:
@@ -191,6 +212,12 @@ class CommandRequest {
     return c;
   }
 
+  static CommandRequest newFlushSecondsCommand(int seconds) {
+    auto c = CommandRequest{CommandType::MACHINE_FLUSH_SECONDS};
+    c.m_flushSeconds = FlushSecondsCommand{seconds};
+    return c;
+  }
+
   static CommandRequest newSleepCommand() {
     auto c = CommandRequest{CommandType::SLEEP};
     c.m_sleep = SleepCommand{};
@@ -211,6 +238,7 @@ class CommandRequest {
     StopMachineCommand m_stopMachine;
     RefillLevelCommand m_refillLevel;
     ProfileCommand m_profile;
+    FlushSecondsCommand m_flushSeconds;
     SleepCommand m_sleep;
     WakeCommand m_wake;
   };

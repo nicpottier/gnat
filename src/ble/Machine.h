@@ -9,6 +9,7 @@ class Machine {
   virtual bool wake() = 0;
   virtual bool setRefillLevel(int mm) = 0;
   virtual bool setProfile(int idx) = 0;
+  virtual bool setFlushSeconds(int seconds) = 0;
 };
 
 }
