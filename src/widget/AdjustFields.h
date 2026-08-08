@@ -87,9 +87,12 @@ struct HotWaterPreset {
   int value;
 };
 
+// only temps the group can actually deliver: with the machine's 98C frame
+// ceiling and delivery losses, anything much past 80C in the cup is out of
+// reach through the group head
 static const HotWaterPreset hot_water_teas[] = {
-    {"Delicate Tea", 71}, {"Green Tea", 79},    {"White Tea", 85},
-    {"Oolong Tea", 91},   {"French Press", 93}, {"Black & Herbal Teas", 96},
+    {"Delicate Tea", 71},
+    {"Green Tea", 79},
 };
 static const int hot_water_tea_count = sizeof(hot_water_teas) / sizeof(hot_water_teas[0]);
 
