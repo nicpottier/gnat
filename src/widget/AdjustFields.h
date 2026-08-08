@@ -94,7 +94,10 @@ static const HotWaterPreset hot_water_teas[] = {
 static const int hot_water_tea_count = sizeof(hot_water_teas) / sizeof(hot_water_teas[0]);
 
 static const HotWaterPreset hot_water_sizes[] = {
-    {"Demitasse", 90}, {"Small Cup", 120}, {"Teacup", 180}, {"Mug", 240}, {"Big Mug", 250},
+    {"Demitasse", 90},
+    {"Small Cup", 120},
+    {"Teacup", 180},
+    {"Mug", 240},
 };
 static const int hot_water_size_count = sizeof(hot_water_sizes) / sizeof(hot_water_sizes[0]);
 
@@ -334,7 +337,7 @@ class AdjustFields : public Widget {
     char teaLabel[48];
     snprintf(teaLabel, 48, "%s (%d%s)", tea.name, displayTemp(tea.value, imperial), tempUnit(imperial));
     char sizeLabel[32];
-    snprintf(sizeLabel, 32, "%s (%dml)", size.name, size.value);
+    snprintf(sizeLabel, 32, "%s (%d%s)", size.name, displayVol(size.value, imperial), volUnit(imperial));
     const char* labels[2] = {teaLabel, sizeLabel};
 
     for (int row = 0; row < 2; row++) {
