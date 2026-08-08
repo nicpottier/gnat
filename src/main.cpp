@@ -745,7 +745,7 @@ void loop() {
           lastStop = g_ctx.tickID;
 
           g_ctx.feedback = FeedbackType::no_scale;
-          if (g_ctx.screen == ScreenID::brew || g_ctx.screen == ScreenID::pour) {
+          if (g_ctx.screen == ScreenID::brew || g_ctx.screen == ScreenID::pour || g_ctx.screen == ScreenID::adjust) {
             g_ctx.screen = ScreenID::feedback;
           }
         }
