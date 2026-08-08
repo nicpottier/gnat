@@ -644,6 +644,9 @@ void loop() {
   bool waterWarnDismissed = false;
   auto lastFlipped = g_ctx.config.isFlipped();
 
+  // whether we switched to the hot water page ourselves for a pour
+  bool autoHotWater = false;
+
   while (true) {
     while (xQueueReceive(updateQ, (void*)&d, 0) == pdTRUE) {
       d.apply(&g_ctx);
@@ -726,6 +729,21 @@ void loop() {
         // send a wake command to our BLE devices
         auto wake = cmd::CommandRequest::newWakeCommand();
         xQueueSend(cmdQ, &wake, 10);
+      }
+
+      // a hot water pour pulls up the hot water page so its presets are a
+      // tap away, and we return to brew when it finishes if we auto switched
+      if (g_ctx.machineState == MachineState::hot_water && lastState != MachineState::hot_water &&
+          (g_ctx.screen == ScreenID::brew || g_ctx.screen == ScreenID::pour || g_ctx.screen == ScreenID::adjust)) {
+        g_ctx.adjustPage = widget::adjust_hot_water_page;
+        g_ctx.screen = ScreenID::adjust;
+        autoHotWater = true;
+      }
+      if (autoHotWater && lastState == MachineState::hot_water && g_ctx.machineState != MachineState::hot_water) {
+        autoHotWater = false;
+        if (g_ctx.screen == ScreenID::adjust && g_ctx.adjustPage == widget::adjust_hot_water_page) {
+          g_ctx.screen = ScreenID::brew;
+        }
       }
 
       // starting a new shot clears any lingering feedback
@@ -930,7 +948,7 @@ void loop() {
             auto& page = widget::adjust_pages[g_ctx.adjustPage];
 
             // the profile page cycles through the enabled profiles
-            if (!page.values) {
+            if (page.kind == widget::AdjustPageKind::profile) {
               for (int next = 0; next <= 1; next++) {
                 int cx, cy;
                 widget::adjustProfileButtonCenter(screenWidth, next, cx, cy);
@@ -938,6 +956,27 @@ void loop() {
                 if (abs(g_touchStartX - cx) <= r && abs(g_touchStartY - cy) <= r) {
                   g_ctx.config.setProfile(next ? g_ctx.config.nextEnabledProfile()
                                                : g_ctx.config.prevEnabledProfile());
+                  adjustDirtyTick = g_ctx.tickID;
+                }
+              }
+            }
+
+            // the hot water page's rows toggle through their presets
+            if (page.kind == widget::AdjustPageKind::hot_water) {
+              for (int row = 0; row < 2; row++) {
+                int bx, by, bw, bh;
+                widget::adjustHotWaterRect(screenWidth, row, bx, by, bw, bh);
+                if (g_touchStartX >= bx && g_touchStartX <= bx + bw && g_touchStartY >= by - px(4) &&
+                    g_touchStartY <= by + bh + px(4)) {
+                  if (row == 0) {
+                    auto idx = widget::hotWaterNearest(widget::hot_water_teas, widget::hot_water_tea_count,
+                                                       g_ctx.config.getWaterTemp());
+                    g_ctx.config.setWaterTemp(widget::hot_water_teas[(idx + 1) % widget::hot_water_tea_count].value);
+                  } else {
+                    auto idx = widget::hotWaterNearest(widget::hot_water_sizes, widget::hot_water_size_count,
+                                                       g_ctx.config.getWaterVol());
+                    g_ctx.config.setWaterVol(widget::hot_water_sizes[(idx + 1) % widget::hot_water_size_count].value);
+                  }
                   adjustDirtyTick = g_ctx.tickID;
                 }
               }

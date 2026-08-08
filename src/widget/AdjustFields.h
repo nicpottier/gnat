@@ -21,6 +21,10 @@ struct AdjustValue {
   const char* const* names;
 };
 
+// what kind of page this is: standard value rows, the custom profile
+// cycler, or the custom hot water preset page
+enum class AdjustPageKind : uint8_t { values, profile, hot_water };
+
 // a swipeable page of up to two adjustable values with its own colors, an
 // optional icon shown inline in the header band and optional help text
 struct AdjustPage {
@@ -38,6 +42,8 @@ struct AdjustPage {
   // centered pages stack the label over a centered control instead of the
   // label left / control right layout
   bool centered;
+
+  AdjustPageKind kind;
 };
 
 static const AdjustValue water_adjust_values[] = {
@@ -70,12 +76,46 @@ static const AdjustValue steam_adjust_values[] = {
      [](Config& c, int v) { c.setSteamSeconds(v); }},
 };
 
-static const AdjustValue hot_water_adjust_values[] = {
-    {"Temp", "C", 1, min_water_temp, max_water_temp, [](Config& c) { return c.getWaterTemp(); },
-     [](Config& c, int v) { c.setWaterTemp(v); }},
-    {"Vol", "ml", 10, min_water_vol, max_water_vol, [](Config& c) { return c.getWaterVol(); },
-     [](Config& c, int v) { c.setWaterVol(v); }},
+// the hot water page toggles between named presets rather than raw numbers,
+// tea temperatures on the first row and common cup sizes on the second
+struct HotWaterPreset {
+  const char* name;
+  int value;
 };
+
+static const HotWaterPreset hot_water_teas[] = {
+    {"Delicate Tea (71C)", 71},  {"Green Tea (79C)", 79},    {"White Tea (85C)", 85},
+    {"Oolong Tea (91C)", 91},    {"French Press (93C)", 93}, {"Black & Herbal Teas (96C)", 96},
+};
+static const int hot_water_tea_count = sizeof(hot_water_teas) / sizeof(hot_water_teas[0]);
+
+static const HotWaterPreset hot_water_sizes[] = {
+    {"Demitasse (90ml)", 90},
+    {"Small Cup (120ml)", 120},
+    {"Teacup (180ml)", 180},
+    {"Mug (240ml)", 240},
+};
+static const int hot_water_size_count = sizeof(hot_water_sizes) / sizeof(hot_water_sizes[0]);
+
+// the preset closest to the current value, so values set elsewhere (web
+// form, machine) still land on a sensible preset
+inline int hotWaterNearest(const HotWaterPreset* presets, int count, int value) {
+  int best = 0;
+  for (int i = 1; i < count; i++) {
+    if (abs(presets[i].value - value) < abs(presets[best].value - value)) {
+      best = i;
+    }
+  }
+  return best;
+}
+
+// the full width toggle rows on the hot water page, shared with hit testing
+inline void adjustHotWaterRect(int width, int row, int& x, int& y, int& w, int& h) {
+  x = px(10);
+  y = px(48 + row * 40);
+  w = width - px(20);
+  h = px(32);
+}
 
 static const AdjustValue machine_adjust_values[] = {
     {"Sleep", "m", 5, 5, max_sleep_time, [](Config& c) { return c.getSleepTime(); },
@@ -102,9 +142,10 @@ const uint32_t steam_page_color = 0x63D1;
 const uint32_t hot_water_page_color = 0x1B6D;
 
 static const AdjustPage adjust_pages[] = {
-    // a null values list marks the custom profile page, which cycles through
-    // the enabled profiles with prev / next buttons instead of value rows
-    {"Profile", TFT_WHITE, profile_page_color, profile_page_color, TFT_WHITE, TFT_WHITE, drawMug, nullptr, 0},
+    {"Hot Water", TFT_WHITE, hot_water_page_color, hot_water_page_color, TFT_WHITE, TFT_WHITE, drawDrop, nullptr, 0,
+     nullptr, false, AdjustPageKind::hot_water},
+    {"Profile", TFT_WHITE, profile_page_color, profile_page_color, TFT_WHITE, TFT_WHITE, drawMug, nullptr, 0, nullptr,
+     false, AdjustPageKind::profile},
     {"Water Levels", TFT_WHITE, theme.water_color, theme.water_color, TFT_WHITE, TFT_WHITE, drawDrop,
      water_adjust_values, 2},
     {"Espresso", TFT_WHITE, espresso_page_color, espresso_page_color, TFT_WHITE, TFT_WHITE, drawMug,
@@ -112,14 +153,16 @@ static const AdjustPage adjust_pages[] = {
     {"Grind Alerts", TFT_WHITE, grind_page_color, grind_page_color, TFT_WHITE, TFT_WHITE, drawGear,
      grind_adjust_values, 2},
     {"Steam", TFT_WHITE, steam_page_color, steam_page_color, TFT_WHITE, TFT_WHITE, drawClock, steam_adjust_values, 2},
-    {"Hot Water", TFT_WHITE, hot_water_page_color, hot_water_page_color, TFT_WHITE, TFT_WHITE, drawDrop,
-     hot_water_adjust_values, 2},
     {"Machine", TFT_WHITE, machine_page_color, machine_page_color, TFT_WHITE, TFT_WHITE, drawPower,
      machine_adjust_values, 2},
     {"App", TFT_WHITE, app_page_color, app_page_color, TFT_WHITE, TFT_WHITE, drawSliders, app_adjust_values, 1,
      "Flipping orientation reboots your gnat", true},
 };
 static const int adjust_page_count = sizeof(adjust_pages) / sizeof(adjust_pages[0]);
+
+// the hot water page sits first so it's one swipe away and can be pulled up
+// when the machine starts a hot water pour
+const int adjust_hot_water_page = 0;
 
 // button geometry in baseline design units, shared with the touch hit testing
 const int adjust_button_r = 16;
@@ -209,8 +252,14 @@ class AdjustFields : public Widget {
 
     tft.setTextColor(page.textColor, page.bgColor);
 
-    if (!page.values) {
+    if (page.kind == AdjustPageKind::profile) {
       paintProfile(tft, page);
+      tft.setTextDatum(TL_DATUM);
+      return;
+    }
+
+    if (page.kind == AdjustPageKind::hot_water) {
+      paintHotWater(tft, page);
       tft.setTextDatum(TL_DATUM);
       return;
     }
@@ -264,6 +313,29 @@ class AdjustFields : public Widget {
   }
 
  private:
+  // the hot water page: two full width toggles, tea temperature presets and
+  // cup sizes, showing whatever the config currently holds
+  void paintHotWater(TFT_eSPI& tft, const AdjustPage& page) {
+    const char* labels[2] = {
+        hot_water_teas[hotWaterNearest(hot_water_teas, hot_water_tea_count, m_config.getWaterTemp())].name,
+        hot_water_sizes[hotWaterNearest(hot_water_sizes, hot_water_size_count, m_config.getWaterVol())].name,
+    };
+
+    for (int row = 0; row < 2; row++) {
+      int bx, by, bw, bh;
+      adjustHotWaterRect(m_width, row, bx, by, bw, bh);
+      tft.fillRoundRect(bx, by, bw, bh, px(8), page.buttonColor);
+      tft.setTextColor(page.bgColor, page.buttonColor);
+      tft.setFreeFont(FONT_BODY);
+      if (tft.textWidth(labels[row]) > bw - px(8)) {
+        tft.setFreeFont(FONT_BODY_SM);
+      }
+      tft.setTextDatum(MC_DATUM);
+      tft.drawString(labels[row], bx + bw / 2, by + bh / 2);
+    }
+    tft.setTextColor(page.textColor, page.bgColor);
+  }
+
   // the profile page: the selected profile's name with prev / next buttons
   // and its position within the enabled set
   void paintProfile(TFT_eSPI& tft, const AdjustPage& page) {
