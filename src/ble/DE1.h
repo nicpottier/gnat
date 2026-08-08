@@ -142,10 +142,17 @@ class DE1 : public Device, public Machine {
       return false;
     }
 
+    // water sheds heat crossing the group and the air on the way to the cup,
+    // keeping roughly three quarters of its rise over room temp, so aim
+    // above the target to land near it, capped at the machine's ceiling,
+    // which makes the hottest presets best effort
+    int frameTemp = min(98, 20 + ((temp - 20) * 4) / 3);
+
     // flow control (CtrlF) ignoring the pressure limit (IgnoreLimit) at
-    // 6 ml/s, frame length covers the volume plus slack
-    uint8_t secs = min(120, vol / 6 + 15);
-    uint8_t frame[8] = {0, 0x41, 6 * 16, uint8_t(temp * 2), uint8_t(0x80 | secs), 0, 0, 0};
+    // 8 ml/s, quick and it holds temperature better than a slow crawl,
+    // frame length covers the volume plus slack
+    uint8_t secs = min(120, vol / 8 + 15);
+    uint8_t frame[8] = {0, 0x41, 8 * 16, uint8_t(frameTemp * 2), uint8_t(0x80 | secs), 0, 0, 0};
     if (!m_frameChar->writeValue(frame, sizeof(frame), true)) {
       return false;
     }
