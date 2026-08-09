@@ -359,10 +359,12 @@ static bool deviceButtonHeld = false;
 static char** g_argv;
 
 // desired panel coordinates become controller coordinates, inverting the
-// firmware's touch mapping (unflipped orientation)
+// firmware's touch mapping. when the firmware runs flipped (rotation 1) its
+// mapping flips twice, so raw coordinates are what lands where clicked
 static void setTouch(int ux, int uy) {
-  emu::touchX = emu_panel_w - 1 - ux;
-  emu::touchY = emu_panel_h - 1 - uy;
+  bool flipped = emu::displayRotation == 1;
+  emu::touchX = flipped ? ux : emu_panel_w - 1 - ux;
+  emu::touchY = flipped ? uy : emu_panel_h - 1 - uy;
   emu::touchDown = true;
 }
 

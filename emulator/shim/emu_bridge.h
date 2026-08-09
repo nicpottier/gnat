@@ -25,6 +25,9 @@ extern std::atomic<bool> touchDown;
 extern std::atomic<int> touchX;
 extern std::atomic<int> touchY;
 
+// the rotation the firmware asked the panel for: 3 is normal, 1 flipped
+extern std::atomic<int> displayRotation;
+
 // gpio pins with interrupt dispatch, pull ups default high
 void setPin(int pin, int level);
 int getPin(int pin);

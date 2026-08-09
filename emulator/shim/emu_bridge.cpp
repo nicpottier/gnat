@@ -20,6 +20,8 @@ std::atomic<bool> touchDown{false};
 std::atomic<int> touchX{0};
 std::atomic<int> touchY{0};
 
+std::atomic<int> displayRotation{3};
+
 std::atomic<bool> restartRequested{false};
 
 // pins default high, matching pull ups

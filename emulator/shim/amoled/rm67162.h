@@ -8,7 +8,9 @@
 
 inline void rm67162_init() {}
 
-inline void lcd_setRotation(int) {}
+inline void lcd_setRotation(int r) {
+  emu::displayRotation = r;
+}
 
 inline void lcd_sleep() {
   emu::displayOn = false;
