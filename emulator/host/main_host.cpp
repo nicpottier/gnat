@@ -1,8 +1,9 @@
 // the gnat emulator host: runs the real firmware (setup/loop from
-// src/main.cpp compiled against the shims) on a worker thread, shows its
-// panel in one SDL window and the simulated kitchen in another: a ghc
-// cluster mirroring the machine's controls plus device toggles, with the
-// mouse feeding the panel window as touch
+// src/main.cpp compiled against the shims) on a worker thread and shows it
+// in a single window: the screen inset on a light gray device body with the
+// device's own inputs below it, and the simulated machine in a dark column
+// on the right, headlined by a ghc cluster mirroring the real controls. the
+// mouse feeds the screen as touch.
 
 #include <Arduino.h>
 
@@ -21,21 +22,25 @@
 extern void setup();
 extern void loop();
 
-// the machine window layout: vertical, the ghc cluster on top with button
-// pairs below it no wider than the pad itself
-const int ctrl_w = 180;
-const int ctrl_h = 344;
-
-// the device window: the panel with a slim strip of device inputs below
-const int strip_h = 38;
-
 // the screen sits inset on a light gray body with a border so its
-// boundaries are obvious
+// boundaries are obvious, device inputs in a strip below it
 const int dev_margin = 16;
-const int dev_w = emu_panel_w + dev_margin * 2;
-const int dev_h = emu_panel_h + dev_margin * 2 + strip_h;
+const int strip_h = 33;
+const int strip_y = dev_margin + emu_panel_h + dev_margin;
 const uint16_t dev_body_color = 0xD69A;
 const uint16_t dev_border_color = 0x632C;
+
+// the machine column on the right keeps its dark background, top aligned
+// with the screen and bottom aligned with the device buttons
+const int machine_gap = 12;
+const int machine_w = 180;
+const int machine_x = dev_margin + emu_panel_w + machine_gap;
+const int machine_y = dev_margin;
+const int machine_h = strip_y + strip_h - dev_margin;
+const uint16_t machine_bg_color = 0x10A2;
+
+const int win_w = machine_x + machine_w + dev_margin;
+const int win_h = strip_y + strip_h + dev_margin;
 
 // control ids
 enum {
@@ -62,16 +67,7 @@ struct Button {
   int id;
 };
 
-// machine window: the simulated kitchen, two across under the ghc
-static Button machineButtons[] = {
-    {8, 184, 80, 28, "Sleep", BTN_SLEEP},      {92, 184, 80, 28, "Idle", BTN_IDLE},
-    {8, 220, 80, 28, "DE1", BTN_DE1},          {92, 220, 80, 28, "Scale", BTN_SCALE},
-    {8, 256, 80, 28, "Tank -", BTN_TANK_DOWN}, {92, 256, 80, 28, "Tank +", BTN_TANK_UP},
-};
-const int machine_button_count = sizeof(machineButtons) / sizeof(machineButtons[0]);
-
-// device window strip: only inputs the physical device has
-const int strip_y = emu_panel_h + dev_margin * 2 + 5;
+// device strip: only inputs the physical device has
 static Button deviceButtons[] = {
     {16, strip_y, 120, 28, "Btn (hold)", BTN_DEVICE},
     {150, strip_y, 100, 28, "Home", BTN_HOME},
@@ -80,10 +76,18 @@ static Button deviceButtons[] = {
 };
 const int device_button_count = sizeof(deviceButtons) / sizeof(deviceButtons[0]);
 
+// machine column, coordinates local to the column
+static Button machineButtons[] = {
+    {8, 172, 80, 27, "Sleep", BTN_SLEEP},      {92, 172, 80, 27, "Idle", BTN_IDLE},
+    {8, 203, 80, 27, "DE1", BTN_DE1},          {92, 203, 80, 27, "Scale", BTN_SCALE},
+    {8, 234, 80, 27, "Tank -", BTN_TANK_DOWN}, {92, 234, 80, 27, "Tank +", BTN_TANK_UP},
+};
+const int machine_button_count = sizeof(machineButtons) / sizeof(machineButtons[0]);
+
 // the ghc cluster mirroring the real machine: hot water up top, steam on
 // the right, espresso at the bottom, flush on the left, stop in the middle
-const int ghc_cx = ctrl_w / 2;
-const int ghc_cy = 92;
+const int ghc_cx = machine_w / 2;
+const int ghc_cy = 86;
 const int ghc_pad_r = 82;
 const int ghc_orbit = 52;
 const int ghc_btn_r = 23;
@@ -468,8 +472,8 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  // zoom is the device window scale, 1x shows the panel pixel for pixel,
-  // keys 1-4 change it live, EMU_ZOOM sets the start
+  // zoom is the window scale, 1x shows the screen pixel for pixel, keys
+  // 1-4 change it live, EMU_ZOOM sets the start
   int zoom = 1;
   if (auto z = getenv("EMU_ZOOM")) {
     zoom = max(1, min(4, atoi(z)));
@@ -478,20 +482,11 @@ int main(int argc, char** argv) {
   // nearest neighbor scaling keeps pixels crisp at every zoom
   SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
 
-  auto panelWin = SDL_CreateWindow("GNAT", SDL_WINDOWPOS_CENTERED, 120, dev_w * zoom, dev_h * zoom,
-                                   SDL_WINDOW_ALLOW_HIGHDPI);
-  auto panelRen = SDL_CreateRenderer(panelWin, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-  SDL_RenderSetLogicalSize(panelRen, dev_w, dev_h);
-  auto panelTex = SDL_CreateTexture(panelRen, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, dev_w, dev_h);
-
-  auto ctrlWin = SDL_CreateWindow("GNAT Machine", SDL_WINDOWPOS_CENTERED, 120 + dev_h * zoom + 60, ctrl_w, ctrl_h,
-                                  SDL_WINDOW_ALLOW_HIGHDPI);
-  auto ctrlRen = SDL_CreateRenderer(ctrlWin, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-  SDL_RenderSetLogicalSize(ctrlRen, ctrl_w, ctrl_h);
-  auto ctrlTex = SDL_CreateTexture(ctrlRen, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, ctrl_w, ctrl_h);
-
-  auto panelWinId = SDL_GetWindowID(panelWin);
-  auto ctrlWinId = SDL_GetWindowID(ctrlWin);
+  auto window = SDL_CreateWindow("GNAT Emulator", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w * zoom,
+                                 win_h * zoom, SDL_WINDOW_ALLOW_HIGHDPI);
+  auto renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+  SDL_RenderSetLogicalSize(renderer, win_w, win_h);
+  auto texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, win_w, win_h);
 
   // the firmware runs on its own thread against the shims
   std::thread firmware([] {
@@ -500,12 +495,10 @@ int main(int argc, char** argv) {
   });
   firmware.detach();
 
-  // both canvases reuse the shim's drawing code
+  // the window canvas reuses the shim's drawing code
   TFT_eSPI base(1, 1);
-  TFT_eSprite panel(&base);
-  panel.createSprite(dev_w, dev_h);
-  TFT_eSprite ctrl(&base);
-  ctrl.createSprite(ctrl_w, ctrl_h);
+  TFT_eSprite canvas(&base);
+  canvas.createSprite(win_w, win_h);
 
   bool seeded = false;
   bool running = true;
@@ -514,42 +507,37 @@ int main(int argc, char** argv) {
     while (SDL_PollEvent(&e)) {
       if (e.type == SDL_QUIT) {
         running = false;
-      } else if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_CLOSE) {
-        running = false;
       } else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT) {
-        if (e.button.windowID == panelWinId) {
-          int mx = e.button.x, my = e.button.y;
-          if (mx >= dev_margin && mx < dev_margin + emu_panel_w && my >= dev_margin &&
-              my < dev_margin + emu_panel_h) {
-            if (!gesture.active) {
-              mouseTouching = true;
-              setTouch(mx - dev_margin, my - dev_margin);
-            }
-          } else {
-            for (int i = 0; i < device_button_count; i++) {
-              auto& b = deviceButtons[i];
-              if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
-                pressButton(b.id);
-              }
-            }
+        int mx = e.button.x, my = e.button.y;
+        if (mx >= dev_margin && mx < dev_margin + emu_panel_w && my >= dev_margin && my < dev_margin + emu_panel_h) {
+          if (!gesture.active) {
+            mouseTouching = true;
+            setTouch(mx - dev_margin, my - dev_margin);
           }
-        } else if (e.button.windowID == ctrlWinId) {
-          int mx = e.button.x, my = e.button.y;
+        } else if (mx >= machine_x) {
+          int lx = mx - machine_x, ly = my - machine_y;
           for (int i = 0; i < machine_button_count; i++) {
             auto& b = machineButtons[i];
-            if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+            if (lx >= b.x && lx <= b.x + b.w && ly >= b.y && ly <= b.y + b.h) {
               pressButton(b.id);
             }
           }
           for (int i = 0; i < ghc_button_count; i++) {
             auto& g = ghcButtons[i];
-            int dx = mx - (ghc_cx + g.dx), dy = my - (ghc_cy + g.dy);
+            int dx = lx - (ghc_cx + g.dx), dy = ly - (ghc_cy + g.dy);
             if (dx * dx + dy * dy <= (ghc_btn_r + 2) * (ghc_btn_r + 2)) {
               pressButton(g.id);
             }
           }
+        } else {
+          for (int i = 0; i < device_button_count; i++) {
+            auto& b = deviceButtons[i];
+            if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+              pressButton(b.id);
+            }
+          }
         }
-      } else if (e.type == SDL_MOUSEMOTION && mouseTouching && e.motion.windowID == panelWinId) {
+      } else if (e.type == SDL_MOUSEMOTION && mouseTouching) {
         if (e.motion.y >= dev_margin && e.motion.y < dev_margin + emu_panel_h) {
           setTouch(min(emu_panel_w - 1, max(0, e.motion.x - dev_margin)), e.motion.y - dev_margin);
         }
@@ -584,7 +572,7 @@ int main(int argc, char** argv) {
           case SDLK_3:
           case SDLK_4:
             zoom = e.key.keysym.sym - SDLK_0;
-            SDL_SetWindowSize(panelWin, dev_w * zoom, dev_h * zoom);
+            SDL_SetWindowSize(window, win_w * zoom, win_h * zoom);
             break;
           case SDLK_ESCAPE: running = false; break;
         }
@@ -609,81 +597,73 @@ int main(int argc, char** argv) {
       execv(g_argv[0], g_argv);
     }
 
-    // device window: the screen inset on the body with a visible border
-    panel.fillSprite(dev_body_color);
-    panel.drawRect(dev_margin - 2, dev_margin - 2, emu_panel_w + 4, emu_panel_h + 4, dev_border_color);
-    panel.drawRect(dev_margin - 1, dev_margin - 1, emu_panel_w + 2, emu_panel_h + 2, dev_border_color);
+    // the device body with the screen inset behind a border
+    canvas.fillSprite(dev_body_color);
+    canvas.drawRect(dev_margin - 2, dev_margin - 2, emu_panel_w + 4, emu_panel_h + 4, dev_border_color);
+    canvas.drawRect(dev_margin - 1, dev_margin - 1, emu_panel_w + 2, emu_panel_h + 2, dev_border_color);
     {
       std::lock_guard<std::mutex> lock(emu::fbMutex);
       if (emu::displayOn) {
-        panel.pushImage(dev_margin, dev_margin, emu_panel_w, emu_panel_h, emu::framebuffer);
+        canvas.pushImage(dev_margin, dev_margin, emu_panel_w, emu_panel_h, emu::framebuffer);
       } else {
-        panel.fillRect(dev_margin, dev_margin, emu_panel_w, emu_panel_h, 0x0000);
-        panel.setFreeFont(&FreeSans9pt7b);
-        panel.setTextColor(0x39E7);
-        panel.setTextDatum(MC_DATUM);
-        panel.drawString("display off", dev_margin + emu_panel_w / 2, dev_margin + emu_panel_h / 2);
+        canvas.fillRect(dev_margin, dev_margin, emu_panel_w, emu_panel_h, 0x0000);
+        canvas.setFreeFont(&FreeSans9pt7b);
+        canvas.setTextColor(0x39E7);
+        canvas.setTextDatum(MC_DATUM);
+        canvas.drawString("display off", dev_margin + emu_panel_w / 2, dev_margin + emu_panel_h / 2);
       }
     }
-    panel.setFreeFont(&FreeSans9pt7b);
-    panel.setTextDatum(MC_DATUM);
+
+    canvas.setFreeFont(&FreeSans9pt7b);
+    canvas.setTextDatum(MC_DATUM);
     for (int i = 0; i < device_button_count; i++) {
       auto& b = deviceButtons[i];
       bool lit = b.id == BTN_DEVICE && deviceButtonHeld;
-      panel.fillRoundRect(b.x, b.y, b.w, b.h, 6, lit ? 0x2D46 : 0x39E7);
-      panel.setTextColor(0xFFFF);
-      panel.drawString(b.label, b.x + b.w / 2, b.y + b.h / 2);
+      canvas.fillRoundRect(b.x, b.y, b.w, b.h, 6, lit ? 0x2D46 : 0x632C);
+      canvas.setTextColor(0xFFFF);
+      canvas.drawString(b.label, b.x + b.w / 2, b.y + b.h / 2);
     }
 
-    // machine window: sim controls left, ghc cluster right, status below
-    ctrl.fillSprite(0x10A2);
-    ctrl.setFreeFont(&FreeSans9pt7b);
-    ctrl.setTextDatum(MC_DATUM);
+    // the machine column keeps its dark background
+    canvas.fillRoundRect(machine_x, machine_y, machine_w, machine_h, 8, machine_bg_color);
     for (int i = 0; i < machine_button_count; i++) {
       auto& b = machineButtons[i];
       bool lit = (b.id == BTN_DE1 && sim.de1) || (b.id == BTN_SCALE && sim.scale);
-      ctrl.fillRoundRect(b.x, b.y, b.w, b.h, 6, lit ? 0x2D46 : 0x39E7);
-      ctrl.setTextColor(0xFFFF);
-      ctrl.drawString(b.label, b.x + b.w / 2, b.y + b.h / 2);
+      canvas.fillRoundRect(machine_x + b.x, machine_y + b.y, b.w, b.h, 6, lit ? 0x2D46 : 0x39E7);
+      canvas.setTextColor(0xFFFF);
+      canvas.drawString(b.label, machine_x + b.x + b.w / 2, machine_y + b.y + b.h / 2);
     }
 
     // the ghc pad
-    ctrl.fillCircle(ghc_cx, ghc_cy, ghc_pad_r, 0x18E3);
-    ctrl.drawCircle(ghc_cx, ghc_cy, ghc_pad_r, 0x4A69);
-    ctrl.drawCircle(ghc_cx, ghc_cy, ghc_pad_r - 1, 0x4A69);
+    int gx = machine_x + ghc_cx, gy = machine_y + ghc_cy;
+    canvas.fillCircle(gx, gy, ghc_pad_r, 0x18E3);
+    canvas.drawCircle(gx, gy, ghc_pad_r, 0x4A69);
+    canvas.drawCircle(gx, gy, ghc_pad_r - 1, 0x4A69);
     for (int i = 0; i < ghc_button_count; i++) {
       auto& g = ghcButtons[i];
       bool active = sim.flowActiveFor(g.id);
       uint16_t fill = g.id == BTN_STOP ? 0x8945 : (active ? 0x2D46 : 0x31A6);
-      ctrl.fillCircle(ghc_cx + g.dx, ghc_cy + g.dy, ghc_btn_r, fill);
-      ctrl.drawCircle(ghc_cx + g.dx, ghc_cy + g.dy, ghc_btn_r, 0x632C);
-      drawGhcIcon(ctrl, g.id, ghc_cx + g.dx, ghc_cy + g.dy, 0xFFFF);
+      canvas.fillCircle(gx + g.dx, gy + g.dy, ghc_btn_r, fill);
+      canvas.drawCircle(gx + g.dx, gy + g.dy, ghc_btn_r, 0x632C);
+      drawGhcIcon(canvas, g.id, gx + g.dx, gy + g.dy, 0xFFFF);
     }
 
-    // status, stacked to fit the narrow window
-    char line1[64];
-    char line2[64];
+    // compact status at the bottom of the machine column
+    char status[64];
     int stateIdx = (int)sim.state;
-    snprintf(line1, sizeof(line1), "%s [%d]", stateIdx <= 21 ? STATES[stateIdx] : "unknown", (int)sim.substate);
-    snprintf(line2, sizeof(line2), "%0.1fg   tank %dmm", sim.weight, sim.tank);
-    ctrl.fillRect(0, ctrl_h - 48, ctrl_w, 48, 0x0841);
-    ctrl.setTextColor(0xBDF7);
-    ctrl.setTextDatum(ML_DATUM);
-    ctrl.drawString(line1, 10, ctrl_h - 35);
-    ctrl.drawString(line2, 10, ctrl_h - 13);
+    snprintf(status, sizeof(status), "%s  %0.0fg  %dmm", stateIdx <= 21 ? STATES[stateIdx] : "unknown", sim.weight,
+             sim.tank);
+    canvas.setTextColor(0xBDF7);
+    canvas.setTextDatum(MC_DATUM);
+    canvas.drawString(status, machine_x + machine_w / 2, machine_y + machine_h - 16);
 
-    SDL_UpdateTexture(panelTex, nullptr, panel.getPointer(), dev_w * 2);
-    SDL_RenderClear(panelRen);
-    SDL_RenderCopy(panelRen, panelTex, nullptr, nullptr);
-    SDL_RenderPresent(panelRen);
+    SDL_UpdateTexture(texture, nullptr, canvas.getPointer(), win_w * 2);
+    SDL_RenderClear(renderer);
+    SDL_RenderCopy(renderer, texture, nullptr, nullptr);
+    SDL_RenderPresent(renderer);
 
-    SDL_UpdateTexture(ctrlTex, nullptr, ctrl.getPointer(), ctrl_w * 2);
-    SDL_RenderClear(ctrlRen);
-    SDL_RenderCopy(ctrlRen, ctrlTex, nullptr, nullptr);
-    SDL_RenderPresent(ctrlRen);
-
-    // EMU_SHOT=path@ms writes a ppm of the panel at the given uptime, for
-    // eyeballing frames without a human at the window (EMU_SHOT_EXIT quits)
+    // EMU_SHOT=path@ms writes the raw screen as a ppm at the given uptime,
+    // with the full window alongside (EMU_SHOT_EXIT quits after)
     static bool shotTaken = false;
     if (!shotTaken) {
       auto spec = getenv("EMU_SHOT");
@@ -692,7 +672,6 @@ int main(int argc, char** argv) {
         if (at && millis() >= (unsigned long)atol(at + 1)) {
           shotTaken = true;
           std::string path(spec, at - spec);
-          auto f = fopen(path.c_str(), "wb");
           auto writePpm = [](FILE* f, const uint16_t* px, int w, int h) {
             fprintf(f, "P6\n%d %d\n255\n", w, h);
             for (int i = 0; i < w * h; i++) {
@@ -701,16 +680,17 @@ int main(int argc, char** argv) {
               fwrite(rgb, 1, 3, f);
             }
           };
+          auto f = fopen(path.c_str(), "wb");
           if (f) {
             std::lock_guard<std::mutex> lock(emu::fbMutex);
             writePpm(f, emu::framebuffer, emu_panel_w, emu_panel_h);
             fclose(f);
             printf("wrote %s\n", path.c_str());
           }
-          auto mf = fopen((path + ".machine.ppm").c_str(), "wb");
-          if (mf) {
-            writePpm(mf, ctrl.getPointer(), ctrl_w, ctrl_h);
-            fclose(mf);
+          auto wf = fopen((path + ".window.ppm").c_str(), "wb");
+          if (wf) {
+            writePpm(wf, canvas.getPointer(), win_w, win_h);
+            fclose(wf);
           }
           if (getenv("EMU_SHOT_EXIT")) {
             running = false;
