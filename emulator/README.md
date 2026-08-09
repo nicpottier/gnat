@@ -8,6 +8,9 @@ into an SDL window, and the host plays the part of the DE1 and Skale by
 exchanging updates and commands over the firmware's own queues — so
 stop-at-weight, tare, sleep and friends all genuinely round-trip.
 
+![the boot splash pouring](docs/splash.png)
+![a recorded shot playing back](docs/shot.png)
+
 ## Building
 
 Requires SDL2 (`brew install sdl2`).
