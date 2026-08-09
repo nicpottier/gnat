@@ -19,17 +19,27 @@ make -C emulator
 
 ## Using it
 
-The panel is up top (2x scale), controls below. The simulated DE1 and scale
-connect automatically shortly after boot.
+Two windows open: **GNAT** is the device — the panel pixel for pixel with a
+strip of the device's own inputs below it — and **GNAT Machine** is the
+simulated kitchen. The DE1 and scale connect automatically shortly after
+boot.
+
+Device window:
 
 - **Mouse on the panel** is your finger: click to tap, drag to swipe.
-- **Machine row**: Sleep / Idle / Shot / Steam / Water / Stop drive the
-  simulated DE1. Shot runs a scripted pull (preinfusion, then a pour with
-  wavy pressure and flow and a weight ramp) that honors stop commands from
-  the firmware, so predictive stop actually stops it.
-- **Device row**: toggle the DE1 and scale connections, nudge the tank level.
-- **Input row**: canned swipe left/right gestures, the Home (circle) touch
-  button, and the physical device button — hold it for a long press.
+- The strip below holds the physical button (hold it for a long press), the
+  Home circle, and canned swipe left/right gestures.
+
+Machine window:
+
+- **The GHC cluster** mirrors the real machine: hot water on top, steam on
+  the right, espresso at the bottom, flush on the left, stop in the middle.
+  A button starts its flow, pressing it again (or stop) ends it. Shot runs
+  a scripted pull — preinfusion, then a pour with wavy pressure and flow
+  and a weight ramp — that honors stop commands from the firmware, so
+  predictive stop actually stops it.
+- Sleep / Idle set the machine state, DE1 / Scale toggle connections, and
+  Tank nudges the water level.
 
 Keyboard: `z` sleep, `i` idle, `s` shot, `t` steam, `w` water, `x` stop,
 `d`/`c` toggle DE1/scale, `[`/`]` tank, arrows swipe, `h` home, `b` device
