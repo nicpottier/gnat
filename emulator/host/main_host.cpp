@@ -28,7 +28,14 @@ const int ctrl_h = 344;
 
 // the device window: the panel with a slim strip of device inputs below
 const int strip_h = 38;
-const int dev_h = emu_panel_h + strip_h;
+
+// the screen sits inset on a light gray body with a border so its
+// boundaries are obvious
+const int dev_margin = 16;
+const int dev_w = emu_panel_w + dev_margin * 2;
+const int dev_h = emu_panel_h + dev_margin * 2 + strip_h;
+const uint16_t dev_body_color = 0xD69A;
+const uint16_t dev_border_color = 0x632C;
 
 // control ids
 enum {
@@ -64,11 +71,12 @@ static Button machineButtons[] = {
 const int machine_button_count = sizeof(machineButtons) / sizeof(machineButtons[0]);
 
 // device window strip: only inputs the physical device has
+const int strip_y = emu_panel_h + dev_margin * 2 + 5;
 static Button deviceButtons[] = {
-    {8, emu_panel_h + 5, 120, 28, "Btn (hold)", BTN_DEVICE},
-    {136, emu_panel_h + 5, 100, 28, "Home", BTN_HOME},
-    {244, emu_panel_h + 5, 120, 28, "< Swipe", BTN_SWIPE_L},
-    {372, emu_panel_h + 5, 120, 28, "Swipe >", BTN_SWIPE_R},
+    {16, strip_y, 120, 28, "Btn (hold)", BTN_DEVICE},
+    {150, strip_y, 100, 28, "Home", BTN_HOME},
+    {286, strip_y, 120, 28, "< Swipe", BTN_SWIPE_L},
+    {418, strip_y, 120, 28, "Swipe >", BTN_SWIPE_R},
 };
 const int device_button_count = sizeof(deviceButtons) / sizeof(deviceButtons[0]);
 
@@ -470,11 +478,11 @@ int main(int argc, char** argv) {
   // nearest neighbor scaling keeps pixels crisp at every zoom
   SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
 
-  auto panelWin = SDL_CreateWindow("GNAT", SDL_WINDOWPOS_CENTERED, 120, emu_panel_w * zoom, dev_h * zoom,
+  auto panelWin = SDL_CreateWindow("GNAT", SDL_WINDOWPOS_CENTERED, 120, dev_w * zoom, dev_h * zoom,
                                    SDL_WINDOW_ALLOW_HIGHDPI);
   auto panelRen = SDL_CreateRenderer(panelWin, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-  SDL_RenderSetLogicalSize(panelRen, emu_panel_w, dev_h);
-  auto panelTex = SDL_CreateTexture(panelRen, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, emu_panel_w, dev_h);
+  SDL_RenderSetLogicalSize(panelRen, dev_w, dev_h);
+  auto panelTex = SDL_CreateTexture(panelRen, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, dev_w, dev_h);
 
   auto ctrlWin = SDL_CreateWindow("GNAT Machine", SDL_WINDOWPOS_CENTERED, 120 + dev_h * zoom + 60, ctrl_w, ctrl_h,
                                   SDL_WINDOW_ALLOW_HIGHDPI);
@@ -495,7 +503,7 @@ int main(int argc, char** argv) {
   // both canvases reuse the shim's drawing code
   TFT_eSPI base(1, 1);
   TFT_eSprite panel(&base);
-  panel.createSprite(emu_panel_w, dev_h);
+  panel.createSprite(dev_w, dev_h);
   TFT_eSprite ctrl(&base);
   ctrl.createSprite(ctrl_w, ctrl_h);
 
@@ -511,10 +519,11 @@ int main(int argc, char** argv) {
       } else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT) {
         if (e.button.windowID == panelWinId) {
           int mx = e.button.x, my = e.button.y;
-          if (my < emu_panel_h) {
+          if (mx >= dev_margin && mx < dev_margin + emu_panel_w && my >= dev_margin &&
+              my < dev_margin + emu_panel_h) {
             if (!gesture.active) {
               mouseTouching = true;
-              setTouch(mx, my);
+              setTouch(mx - dev_margin, my - dev_margin);
             }
           } else {
             for (int i = 0; i < device_button_count; i++) {
@@ -541,8 +550,8 @@ int main(int argc, char** argv) {
           }
         }
       } else if (e.type == SDL_MOUSEMOTION && mouseTouching && e.motion.windowID == panelWinId) {
-        if (e.motion.y < emu_panel_h) {
-          setTouch(e.motion.x, e.motion.y);
+        if (e.motion.y >= dev_margin && e.motion.y < dev_margin + emu_panel_h) {
+          setTouch(min(emu_panel_w - 1, max(0, e.motion.x - dev_margin)), e.motion.y - dev_margin);
         }
       } else if (e.type == SDL_MOUSEBUTTONUP && e.button.button == SDL_BUTTON_LEFT) {
         if (mouseTouching) {
@@ -575,7 +584,7 @@ int main(int argc, char** argv) {
           case SDLK_3:
           case SDLK_4:
             zoom = e.key.keysym.sym - SDLK_0;
-            SDL_SetWindowSize(panelWin, emu_panel_w * zoom, dev_h * zoom);
+            SDL_SetWindowSize(panelWin, dev_w * zoom, dev_h * zoom);
             break;
           case SDLK_ESCAPE: running = false; break;
         }
@@ -600,20 +609,22 @@ int main(int argc, char** argv) {
       execv(g_argv[0], g_argv);
     }
 
-    // device window: the panel with the device's own inputs below
+    // device window: the screen inset on the body with a visible border
+    panel.fillSprite(dev_body_color);
+    panel.drawRect(dev_margin - 2, dev_margin - 2, emu_panel_w + 4, emu_panel_h + 4, dev_border_color);
+    panel.drawRect(dev_margin - 1, dev_margin - 1, emu_panel_w + 2, emu_panel_h + 2, dev_border_color);
     {
       std::lock_guard<std::mutex> lock(emu::fbMutex);
       if (emu::displayOn) {
-        panel.pushImage(0, 0, emu_panel_w, emu_panel_h, emu::framebuffer);
+        panel.pushImage(dev_margin, dev_margin, emu_panel_w, emu_panel_h, emu::framebuffer);
       } else {
-        panel.fillRect(0, 0, emu_panel_w, emu_panel_h, 0x0000);
+        panel.fillRect(dev_margin, dev_margin, emu_panel_w, emu_panel_h, 0x0000);
         panel.setFreeFont(&FreeSans9pt7b);
         panel.setTextColor(0x39E7);
         panel.setTextDatum(MC_DATUM);
-        panel.drawString("display off", emu_panel_w / 2, emu_panel_h / 2);
+        panel.drawString("display off", dev_margin + emu_panel_w / 2, dev_margin + emu_panel_h / 2);
       }
     }
-    panel.fillRect(0, emu_panel_h, emu_panel_w, strip_h, 0x10A2);
     panel.setFreeFont(&FreeSans9pt7b);
     panel.setTextDatum(MC_DATUM);
     for (int i = 0; i < device_button_count; i++) {
@@ -661,7 +672,7 @@ int main(int argc, char** argv) {
     ctrl.drawString(line1, 10, ctrl_h - 35);
     ctrl.drawString(line2, 10, ctrl_h - 13);
 
-    SDL_UpdateTexture(panelTex, nullptr, panel.getPointer(), emu_panel_w * 2);
+    SDL_UpdateTexture(panelTex, nullptr, panel.getPointer(), dev_w * 2);
     SDL_RenderClear(panelRen);
     SDL_RenderCopy(panelRen, panelTex, nullptr, nullptr);
     SDL_RenderPresent(panelRen);
@@ -691,7 +702,8 @@ int main(int argc, char** argv) {
             }
           };
           if (f) {
-            writePpm(f, panel.getPointer(), emu_panel_w, emu_panel_h);
+            std::lock_guard<std::mutex> lock(emu::fbMutex);
+            writePpm(f, emu::framebuffer, emu_panel_w, emu_panel_h);
             fclose(f);
             printf("wrote %s\n", path.c_str());
           }
