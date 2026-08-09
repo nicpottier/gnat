@@ -17,13 +17,13 @@ OBJS = build/main_fw.o build/emu_bridge.o build/main_host.o
 gnat-emu: $(OBJS)
 	$(CXX) -o $@ $(OBJS) $(SDL_LIBS)
 
-build/main_fw.o: ../src/main.cpp $(wildcard shim/*.h shim/*/*.h) | build
+build/main_fw.o: ../src/main.cpp Makefile $(wildcard shim/*.h shim/*/*.h) | build
 	$(CXX) $(CXXFLAGS) -c ../src/main.cpp -o $@
 
-build/emu_bridge.o: shim/emu_bridge.cpp $(wildcard shim/*.h) | build
+build/emu_bridge.o: shim/emu_bridge.cpp Makefile $(wildcard shim/*.h) | build
 	$(CXX) $(CXXFLAGS) -c shim/emu_bridge.cpp -o $@
 
-build/main_host.o: host/main_host.cpp $(wildcard shim/*.h shim/*/*.h) | build
+build/main_host.o: host/main_host.cpp Makefile $(wildcard shim/*.h shim/*/*.h) | build
 	$(CXX) $(CXXFLAGS) -c host/main_host.cpp -o $@
 
 build:
