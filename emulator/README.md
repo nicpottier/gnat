@@ -38,11 +38,14 @@ Machine window:
   a scripted pull — preinfusion, then a pour with wavy pressure and flow
   and a weight ramp — that honors stop commands from the firmware, so
   predictive stop actually stops it.
-- Sleep / Idle set the machine state, DE1 / Scale toggle connections, and
-  Tank nudges the water level.
+- Sleep / Idle set the machine state, DE1 / Scale toggle connections, the
+  water drop row nudges the tank level and the cog row is the grinder: the
+  recorded pour plays out in 29 seconds at 0, one second more per point
+  finer, one less per point coarser, so the grind feedback banners react
+  just like they would at the machine.
 
 Keyboard: `z` sleep, `i` idle, `s` shot, `t` steam, `w` water, `x` stop,
-`d`/`c` toggle DE1/scale, `[`/`]` tank, arrows swipe, `h` home, `b` device
+`d`/`c` toggle DE1/scale, `[`/`]` tank, `,`/`.` grinder, arrows swipe, `h` home, `b` device
 button, `1`-`4` zoom, `Esc` quits. The window opens at 1x (pixel for
 pixel); `EMU_ZOOM=2` picks the starting zoom.
 

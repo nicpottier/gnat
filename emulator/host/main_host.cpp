@@ -56,6 +56,8 @@ enum {
   BTN_SCALE,
   BTN_TANK_DOWN,
   BTN_TANK_UP,
+  BTN_GRIND_DOWN,
+  BTN_GRIND_UP,
   BTN_SWIPE_L,
   BTN_SWIPE_R,
   BTN_HOME,
@@ -79,19 +81,20 @@ const int device_button_count = sizeof(deviceButtons) / sizeof(deviceButtons[0])
 
 // machine column, coordinates local to the column
 static Button machineButtons[] = {
-    {8, 172, 80, 27, "Sleep", BTN_SLEEP},      {92, 172, 80, 27, "Idle", BTN_IDLE},
-    {8, 203, 80, 27, "DE1", BTN_DE1},          {92, 203, 80, 27, "Scale", BTN_SCALE},
-    {8, 234, 80, 27, "Tank -", BTN_TANK_DOWN}, {92, 234, 80, 27, "Tank +", BTN_TANK_UP},
+    {8, 158, 80, 25, "Sleep", BTN_SLEEP},        {92, 158, 80, 25, "Idle", BTN_IDLE},
+    {8, 186, 80, 25, "DE1", BTN_DE1},            {92, 186, 80, 25, "Scale", BTN_SCALE},
+    {8, 216, 36, 25, "-", BTN_TANK_DOWN},        {136, 216, 36, 25, "+", BTN_TANK_UP},
+    {8, 245, 36, 25, "-", BTN_GRIND_DOWN},       {136, 245, 36, 25, "+", BTN_GRIND_UP},
 };
 const int machine_button_count = sizeof(machineButtons) / sizeof(machineButtons[0]);
 
 // the ghc cluster mirroring the real machine: hot water up top, steam on
 // the right, espresso at the bottom, flush on the left, stop in the middle
 const int ghc_cx = machine_w / 2;
-const int ghc_cy = 86;
-const int ghc_pad_r = 82;
-const int ghc_orbit = 52;
-const int ghc_btn_r = 23;
+const int ghc_cy = 78;
+const int ghc_pad_r = 74;
+const int ghc_orbit = 46;
+const int ghc_btn_r = 21;
 
 struct GhcButton {
   int dx, dy;
@@ -127,10 +130,21 @@ struct Sim {
   int frameNumber = 0;
 
   // shot playback follows a recorded visualizer shot, dripping a little
-  // extra into the cup after a stop
+  // extra into the cup after a stop. the grinder scales the pour phase:
+  // 29 seconds at 0, one second per point either way
   unsigned long shotStart = 0;
   int playIndex = 0;
   double drip = 0;
+  int grind = 0;
+
+  // maps recorded time onto the grinder-adjusted timeline: preinfusion
+  // plays as recorded, the pour stretches to 29 + grind seconds
+  double mapTime(double r) {
+    double pourT = shot_time[shot_pour_start_index];
+    double recPour = shot_time[shot_sample_count - 1] - pourT;
+    double k = (29.0 + grind) / recPour;
+    return r <= pourT ? r : pourT + (r - pourT) * k;
+  }
 
   QueueHandle_t updateQ() { return emu::queueAt(1); }
   QueueHandle_t cmdQ() { return emu::queueAt(2); }
@@ -286,7 +300,7 @@ struct Sim {
         (substate == MachineSubstate::preinfusing || substate == MachineSubstate::pouring)) {
       // play the recorded shot at its own pace
       auto st = (now - shotStart) / 1000.0;
-      while (playIndex < shot_sample_count && shot_time[playIndex] <= st) {
+      while (playIndex < shot_sample_count && mapTime(shot_time[playIndex]) <= st) {
         auto i = playIndex++;
         frameNumber = shot_frame[i];
         emitSample(shot_pressure[i], shot_flow[i], shot_pressure_goal[i], shot_flow_goal[i], shot_temp[i]);
@@ -423,6 +437,12 @@ static void pressButton(int id) {
       sim.tank = min(40, sim.tank + 5);
       sim.pushTank();
       break;
+    case BTN_GRIND_DOWN:
+      sim.grind = max(-9, sim.grind - 1);
+      break;
+    case BTN_GRIND_UP:
+      sim.grind = min(9, sim.grind + 1);
+      break;
     case BTN_SWIPE_L:
       startSwipe(true);
       break;
@@ -469,6 +489,15 @@ static void iconFlush(TFT_eSprite& c, int cx, int cy, uint16_t col) {
 
 static void iconStop(TFT_eSprite& c, int cx, int cy, uint16_t col) {
   c.fillRect(cx - 6, cy - 6, 12, 12, col);
+}
+
+static void iconCog(TFT_eSprite& c, int cx, int cy, uint16_t col) {
+  for (int t = 0; t < 8; t++) {
+    double a = t * M_PI / 4;
+    c.fillCircle(cx + (int)round(cos(a) * 8), cy + (int)round(sin(a) * 8), 2, col);
+  }
+  c.fillCircle(cx, cy, 7, col);
+  c.fillCircle(cx, cy, 3, 0x10A2);
 }
 
 static void drawGhcIcon(TFT_eSprite& c, int id, int cx, int cy, uint16_t col) {
@@ -580,6 +609,8 @@ int main(int argc, char** argv) {
           case SDLK_c: pressButton(BTN_SCALE); break;
           case SDLK_LEFTBRACKET: pressButton(BTN_TANK_DOWN); break;
           case SDLK_RIGHTBRACKET: pressButton(BTN_TANK_UP); break;
+          case SDLK_COMMA: pressButton(BTN_GRIND_DOWN); break;
+          case SDLK_PERIOD: pressButton(BTN_GRIND_UP); break;
           case SDLK_LEFT: pressButton(BTN_SWIPE_L); break;
           case SDLK_RIGHT: pressButton(BTN_SWIPE_R); break;
           case SDLK_h: pressButton(BTN_HOME); break;
@@ -672,14 +703,25 @@ int main(int argc, char** argv) {
       drawGhcIcon(canvas, g.id, gx + g.dx, gy + g.dy, 0xFFFF);
     }
 
+    // the tank and grinder rows: icon and live value between their buttons
+    char value[16];
+    iconDrop(canvas, machine_x + 66, machine_y + 228, 0x5D7F);
+    snprintf(value, sizeof(value), "%d", sim.tank);
+    canvas.setTextColor(0xFFFF);
+    canvas.setTextDatum(ML_DATUM);
+    canvas.drawString(value, machine_x + 88, machine_y + 229);
+
+    iconCog(canvas, machine_x + 66, machine_y + 257, 0xBDF7);
+    snprintf(value, sizeof(value), "%+d", sim.grind);
+    canvas.drawString(value, machine_x + 88, machine_y + 258);
+
     // compact status at the bottom of the machine column
     char status[64];
     int stateIdx = (int)sim.state;
-    snprintf(status, sizeof(status), "%s  %0.0fg  %dmm", stateIdx <= 21 ? STATES[stateIdx] : "unknown", sim.weight,
-             sim.tank);
+    snprintf(status, sizeof(status), "%s  %0.0fg", stateIdx <= 21 ? STATES[stateIdx] : "unknown", sim.weight);
     canvas.setTextColor(0xBDF7);
     canvas.setTextDatum(MC_DATUM);
-    canvas.drawString(status, machine_x + machine_w / 2, machine_y + machine_h - 16);
+    canvas.drawString(status, machine_x + machine_w / 2, machine_y + machine_h - 10);
 
     SDL_UpdateTexture(texture, nullptr, canvas.getPointer(), win_w * 2);
     SDL_RenderClear(renderer);
