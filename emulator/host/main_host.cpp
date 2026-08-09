@@ -18,6 +18,7 @@
 #include <thread>
 
 #include "../shim/emu_bridge.h"
+#include "shot_data.h"
 
 extern void setup();
 extern void loop();
@@ -125,6 +126,12 @@ struct Sim {
   int sampleTime = 0;
   int frameNumber = 0;
 
+  // shot playback follows a recorded visualizer shot, dripping a little
+  // extra into the cup after a stop
+  unsigned long shotStart = 0;
+  int playIndex = 0;
+  double drip = 0;
+
   QueueHandle_t updateQ() { return emu::queueAt(1); }
   QueueHandle_t cmdQ() { return emu::queueAt(2); }
 
@@ -167,11 +174,15 @@ struct Sim {
       connectDe1(true);
     }
     frameNumber = 0;
+    playIndex = 0;
+    drip = 0;
+    shotStart = millis();
     setState(MachineState::espresso, MachineSubstate::preinfusing);
   }
 
   void stopFlow() {
     if (state == MachineState::espresso) {
+      drip = 1.2;
       setState(MachineState::espresso, MachineSubstate::ending);
     } else if (state == MachineState::steam || state == MachineState::hot_water ||
                state == MachineState::hot_water_rinse) {
@@ -220,7 +231,7 @@ struct Sim {
     return false;
   }
 
-  void emitSample(double pressure, double flow, double targetP, double targetF) {
+  void emitSample(double pressure, double flow, double targetP, double targetF, double headTemp = 92.5) {
     data::Sample s{};
     sampleTime += 100;
     s.sampleTime = sampleTime;
@@ -228,7 +239,7 @@ struct Sim {
     s.groupFlow = flow;
     s.targetGroupPressure = targetP;
     s.targetGroupFlow = targetF;
-    s.headTemp = 92.5;
+    s.headTemp = headTemp;
     s.mixTemp = 90;
     s.frameNumber = frameNumber;
     s.steamTemp = 150;
@@ -271,31 +282,37 @@ struct Sim {
     auto t = (now - phaseStart) / 1000.0;
     bool emitDue = now - lastEmit >= 100;
 
-    if (state == MachineState::espresso && substate == MachineSubstate::preinfusing) {
-      if (emitDue) {
-        emitSample(2.4 + 0.2 * sin(t * 2), 0.6, 3.0, 0.5);
-      }
-      if (t > 2.5) {
-        setState(MachineState::espresso, MachineSubstate::pouring);
-      }
-    } else if (state == MachineState::espresso && substate == MachineSubstate::pouring) {
-      if (emitDue) {
-        double flow = 2.0 + 0.25 * sin(t * 1.3);
-        emitSample(8.6 + 0.35 * sin(t), flow, 9.0, 2.0);
-        frameNumber = min(7, 1 + (int)(t / 5));
+    if (state == MachineState::espresso &&
+        (substate == MachineSubstate::preinfusing || substate == MachineSubstate::pouring)) {
+      // play the recorded shot at its own pace
+      auto st = (now - shotStart) / 1000.0;
+      while (playIndex < shot_sample_count && shot_time[playIndex] <= st) {
+        auto i = playIndex++;
+        frameNumber = shot_frame[i];
+        emitSample(shot_pressure[i], shot_flow[i], shot_pressure_goal[i], shot_flow_goal[i], shot_temp[i]);
         if (scale) {
-          weight += flow * 0.92 * 0.1;
+          weight = shot_weight[i];
           pushWeight();
         }
+        if (i == shot_pour_start_index && substate == MachineSubstate::preinfusing) {
+          setState(MachineState::espresso, MachineSubstate::pouring);
+        }
       }
-      if (t > 60) {
+      if (playIndex >= shot_sample_count) {
         stopFlow();
       }
     } else if (state == MachineState::espresso && substate == MachineSubstate::ending) {
       if (emitDue) {
         emitSample(1.0, 0.2, 0, 0);
+        // the last of the pour drips in
+        if (scale && drip > 0) {
+          auto d = min(drip, 0.15);
+          weight += d;
+          drip -= d;
+          pushWeight();
+        }
       }
-      if (t > 0.8) {
+      if (t > 0.8 && drip <= 0.01) {
         setState(MachineState::idle, MachineSubstate::ready);
       }
     } else if (state == MachineState::hot_water) {
@@ -587,6 +604,13 @@ int main(int argc, char** argv) {
       seeded = true;
       sim.connectDe1(true);
       sim.connectScale(true);
+    }
+
+    // EMU_AUTOSHOT starts the recorded shot on its own, for headless runs
+    static bool autoShot = false;
+    if (!autoShot && seeded && getenv("EMU_AUTOSHOT") && millis() > 2500) {
+      autoShot = true;
+      sim.startShot();
     }
 
     runGesture();
