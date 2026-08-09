@@ -640,11 +640,15 @@ int main(int argc, char** argv) {
       sim.connectScale(true);
     }
 
-    // EMU_AUTOSHOT starts the recorded shot on its own, for headless runs
+    // EMU_AUTOSHOT starts the recorded shot on its own, for headless runs,
+    // at the given uptime in ms (or 2500 if it isn't a number)
     static bool autoShot = false;
-    if (!autoShot && seeded && getenv("EMU_AUTOSHOT") && millis() > 2500) {
-      autoShot = true;
-      sim.startShot();
+    if (!autoShot && seeded && getenv("EMU_AUTOSHOT")) {
+      auto at = atol(getenv("EMU_AUTOSHOT"));
+      if (millis() > (unsigned long)max(2500L, at)) {
+        autoShot = true;
+        sim.startShot();
+      }
     }
 
     runGesture();

@@ -6,7 +6,7 @@ SDL_CFLAGS := $(shell pkg-config --cflags sdl2)
 SDL_LIBS := $(shell pkg-config --libs sdl2)
 
 DEFINES = -DDISPLAY_RM67162 -DTOUCH_CST816 -DCOMBO_BUTTON_PIN=0 -DMENU_BUTTON_PIN=0 \
-          -DUI_SCALE_PCT=178 -DTFT_WIDTH=240 -DTFT_HEIGHT=536 -DBUILD_VERSION=emu \
+          -DUI_SCALE_PCT=178 -DTFT_WIDTH=240 -DTFT_HEIGHT=536 -DBUILD_VERSION= \
           -DTOUCH_SDA_PIN=1 -DTOUCH_SCL_PIN=2
 
 CXXFLAGS = -std=c++17 -O2 -g -Wall -Wno-unused-variable -Wno-sign-compare \
