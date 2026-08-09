@@ -19,25 +19,29 @@ make -C emulator
 
 ## Using it
 
-Two windows open: **GNAT** is the device — the panel pixel for pixel with a
-strip of the device's own inputs below it — and **GNAT Machine** is the
-simulated kitchen. The DE1 and scale connect automatically shortly after
-boot.
+One window, two halves. The device is on the left: the screen pixel for
+pixel, inset on a light gray body behind a border so its boundaries are
+obvious, with a strip of the device's own inputs below it. The simulated
+machine is the dark column on the right, top aligned with the screen. The
+DE1 and scale connect automatically shortly after boot.
 
-Device window:
+The device:
 
-- **Mouse on the panel** is your finger: click to tap, drag to swipe.
+- **Mouse on the screen** is your finger: click to tap, drag to swipe,
+  correct in both normal and flipped orientation.
 - The strip below holds the physical button (hold it for a long press), the
   Home circle, and canned swipe left/right gestures.
 
-Machine window:
+The machine column:
 
 - **The GHC cluster** mirrors the real machine: hot water on top, steam on
   the right, espresso at the bottom, flush on the left, stop in the middle.
-  A button starts its flow, pressing it again (or stop) ends it. Shot runs
-  a scripted pull — preinfusion, then a pour with wavy pressure and flow
-  and a weight ramp — that honors stop commands from the firmware, so
-  predictive stop actually stops it.
+  A button starts its flow, pressing it again (or stop) ends it. Espresso
+  plays back a real recorded shot (Damian's LRv2 from visualizer.coffee):
+  pressure, flow, goals, basket temp and weight all follow the recording,
+  and it honors stop commands from the firmware, so predictive stop
+  actually stops it. `tools/visualizer_to_header.py` bakes a different
+  downloaded shot into `host/shot_data.h`.
 - Sleep / Idle set the machine state, DE1 / Scale toggle connections, the
   water drop row nudges the tank level and the cog row is the grinder: the
   recorded pour plays out in 29 seconds at 0, one second more per point
