@@ -21,9 +21,10 @@
 extern void setup();
 extern void loop();
 
-// the machine window layout
-const int ctrl_w = 430;
-const int ctrl_h = 290;
+// the machine window layout: vertical, the ghc cluster on top with button
+// pairs below it no wider than the pad itself
+const int ctrl_w = 180;
+const int ctrl_h = 344;
 
 // the device window: the panel with a slim strip of device inputs below
 const int strip_h = 38;
@@ -54,11 +55,11 @@ struct Button {
   int id;
 };
 
-// machine window: the simulated kitchen
+// machine window: the simulated kitchen, two across under the ghc
 static Button machineButtons[] = {
-    {8, 12, 115, 30, "Sleep", BTN_SLEEP},      {131, 12, 115, 30, "Idle", BTN_IDLE},
-    {8, 50, 115, 30, "DE1", BTN_DE1},          {131, 50, 115, 30, "Scale", BTN_SCALE},
-    {8, 88, 115, 30, "Tank -", BTN_TANK_DOWN}, {131, 88, 115, 30, "Tank +", BTN_TANK_UP},
+    {8, 184, 80, 28, "Sleep", BTN_SLEEP},      {92, 184, 80, 28, "Idle", BTN_IDLE},
+    {8, 220, 80, 28, "DE1", BTN_DE1},          {92, 220, 80, 28, "Scale", BTN_SCALE},
+    {8, 256, 80, 28, "Tank -", BTN_TANK_DOWN}, {92, 256, 80, 28, "Tank +", BTN_TANK_UP},
 };
 const int machine_button_count = sizeof(machineButtons) / sizeof(machineButtons[0]);
 
@@ -73,8 +74,8 @@ const int device_button_count = sizeof(deviceButtons) / sizeof(deviceButtons[0])
 
 // the ghc cluster mirroring the real machine: hot water up top, steam on
 // the right, espresso at the bottom, flush on the left, stop in the middle
-const int ghc_cx = 340;
-const int ghc_cy = 110;
+const int ghc_cx = ctrl_w / 2;
+const int ghc_cy = 92;
 const int ghc_pad_r = 82;
 const int ghc_orbit = 52;
 const int ghc_btn_r = 23;
@@ -648,15 +649,17 @@ int main(int argc, char** argv) {
       drawGhcIcon(ctrl, g.id, ghc_cx + g.dx, ghc_cy + g.dy, 0xFFFF);
     }
 
-    // status line
-    char status[128];
+    // status, stacked to fit the narrow window
+    char line1[64];
+    char line2[64];
     int stateIdx = (int)sim.state;
-    snprintf(status, sizeof(status), "%s [%d]   %0.1fg   tank %dmm", stateIdx <= 21 ? STATES[stateIdx] : "unknown",
-             (int)sim.substate, sim.weight, sim.tank);
-    ctrl.fillRect(0, ctrl_h - 26, ctrl_w, 26, 0x0841);
+    snprintf(line1, sizeof(line1), "%s [%d]", stateIdx <= 21 ? STATES[stateIdx] : "unknown", (int)sim.substate);
+    snprintf(line2, sizeof(line2), "%0.1fg   tank %dmm", sim.weight, sim.tank);
+    ctrl.fillRect(0, ctrl_h - 48, ctrl_w, 48, 0x0841);
     ctrl.setTextColor(0xBDF7);
     ctrl.setTextDatum(ML_DATUM);
-    ctrl.drawString(status, 10, ctrl_h - 13);
+    ctrl.drawString(line1, 10, ctrl_h - 35);
+    ctrl.drawString(line2, 10, ctrl_h - 13);
 
     SDL_UpdateTexture(panelTex, nullptr, panel.getPointer(), emu_panel_w * 2);
     SDL_RenderClear(panelRen);
