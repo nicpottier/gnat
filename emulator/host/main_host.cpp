@@ -531,7 +531,6 @@ int main(int argc, char** argv) {
   auto window = SDL_CreateWindow("GNAT Emulator", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, win_w * zoom,
                                  win_h * zoom, SDL_WINDOW_ALLOW_HIGHDPI);
   auto renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-  SDL_RenderSetLogicalSize(renderer, win_w, win_h);
   auto texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, win_w, win_h);
 
   // the firmware runs on its own thread against the shims
@@ -554,7 +553,8 @@ int main(int argc, char** argv) {
       if (e.type == SDL_QUIT) {
         running = false;
       } else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT) {
-        int mx = e.button.x, my = e.button.y;
+        // events arrive in window points, our canvas is window points / zoom
+        int mx = e.button.x / zoom, my = e.button.y / zoom;
         if (mx >= dev_margin && mx < dev_margin + emu_panel_w && my >= dev_margin && my < dev_margin + emu_panel_h) {
           if (!gesture.active) {
             mouseTouching = true;
@@ -584,8 +584,9 @@ int main(int argc, char** argv) {
           }
         }
       } else if (e.type == SDL_MOUSEMOTION && mouseTouching) {
-        if (e.motion.y >= dev_margin && e.motion.y < dev_margin + emu_panel_h) {
-          setTouch(min(emu_panel_w - 1, max(0, e.motion.x - dev_margin)), e.motion.y - dev_margin);
+        int mx = e.motion.x / zoom, my = e.motion.y / zoom;
+        if (my >= dev_margin && my < dev_margin + emu_panel_h) {
+          setTouch(min(emu_panel_w - 1, max(0, mx - dev_margin)), my - dev_margin);
         }
       } else if (e.type == SDL_MOUSEBUTTONUP && e.button.button == SDL_BUTTON_LEFT) {
         if (mouseTouching) {
