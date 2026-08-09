@@ -640,11 +640,15 @@ int main(int argc, char** argv) {
       sim.connectScale(true);
     }
 
-    // EMU_AUTOSHOT starts the recorded shot on its own, for headless runs
+    // EMU_AUTOSHOT starts the recorded shot on its own, for headless runs,
+    // at the given uptime in ms (or 2500 if it isn't a number)
     static bool autoShot = false;
-    if (!autoShot && seeded && getenv("EMU_AUTOSHOT") && millis() > 2500) {
-      autoShot = true;
-      sim.startShot();
+    if (!autoShot && seeded && getenv("EMU_AUTOSHOT")) {
+      auto at = atol(getenv("EMU_AUTOSHOT"));
+      if (millis() > (unsigned long)max(2500L, at)) {
+        autoShot = true;
+        sim.startShot();
+      }
     }
 
     runGesture();
@@ -730,6 +734,47 @@ int main(int argc, char** argv) {
     SDL_RenderClear(renderer);
     SDL_RenderCopy(renderer, texture, nullptr, nullptr);
     SDL_RenderPresent(renderer);
+
+    // EMU_RECORD=prefix@start-end writes the raw screen as numbered ppm
+    // frames (every other render frame) through the uptime window, exiting
+    // after when EMU_SHOT_EXIT is set
+    static int recIndex = 0;
+    static int recSkip = 0;
+    static bool recDone = false;
+    if (!recDone) {
+      auto rec = getenv("EMU_RECORD");
+      if (rec) {
+        auto at = strchr(rec, '@');
+        if (at) {
+          auto start = (unsigned long)atol(at + 1);
+          auto dash = strchr(at, '-');
+          auto end = dash ? (unsigned long)atol(dash + 1) : start + 5000;
+          auto ms = millis();
+          if (ms > end) {
+            recDone = true;
+            printf("recorded %d frames\n", recIndex);
+            if (getenv("EMU_SHOT_EXIT")) {
+              running = false;
+            }
+          } else if (ms >= start && recSkip++ % 2 == 0) {
+            char fname[512];
+            snprintf(fname, sizeof(fname), "%.*s_%04d.ppm", int(at - rec), rec, recIndex++);
+            auto f = fopen(fname, "wb");
+            if (f) {
+              std::lock_guard<std::mutex> lock(emu::fbMutex);
+              fprintf(f, "P6\n%d %d\n255\n", emu_panel_w, emu_panel_h);
+              for (int i = 0; i < emu_panel_w * emu_panel_h; i++) {
+                uint16_t c = emu::framebuffer[i];
+                uint8_t rgb[3] = {uint8_t((c >> 11) << 3), uint8_t(((c >> 5) & 0x3F) << 2),
+                                  uint8_t((c & 0x1F) << 3)};
+                fwrite(rgb, 1, 3, f);
+              }
+              fclose(f);
+            }
+          }
+        }
+      }
+    }
 
     // EMU_SHOT=path@ms writes the raw screen as a ppm at the given uptime,
     // with the full window alongside (EMU_SHOT_EXIT quits after)

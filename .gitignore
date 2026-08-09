@@ -8,7 +8,6 @@
 platformio-device-monitor*
 .jekyll-cache
 _site
-CLAUDE.md
 .DS_Store
 
 # emulator artifacts
