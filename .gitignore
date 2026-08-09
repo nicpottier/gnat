@@ -10,3 +10,9 @@ platformio-device-monitor*
 _site
 CLAUDE.md
 .DS_Store
+
+# emulator artifacts
+emulator/build/
+emulator/gnat-emu
+gnat-emu.eeprom
+*.ppm
