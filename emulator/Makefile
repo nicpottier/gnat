@@ -46,8 +46,12 @@ build/wake_test: test/wake_test.cpp ../src/main.cpp shim/emu_bridge.cpp Makefile
 	$(CXX) $(TEST_FLAGS) -Ishim -I../src \
 	    test/wake_test.cpp ../src/main.cpp shim/emu_bridge.cpp -o $@
 
-test: build/rm67162_wake_test build/wake_test
+build/display_controller_test: test/display_controller_test.cpp ../src/controller/DisplayController.h Makefile | build
+	$(CXX) $(TEST_FLAGS) -I../src test/display_controller_test.cpp -o $@
+
+test: build/rm67162_wake_test build/display_controller_test build/wake_test
 	@echo "== rm67162 driver wake =="; ./build/rm67162_wake_test
+	@echo "== display controller sequencing =="; ./build/display_controller_test
 	@echo "== firmware loop sleep/wake ==";  ./build/wake_test >/dev/null && echo "PASSED" || (./build/wake_test; false)
 
 clean:
