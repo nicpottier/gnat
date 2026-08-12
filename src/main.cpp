@@ -146,6 +146,18 @@ void renderScreens() {
 #endif
 }
 
+// push a blank frame. called while the panel is still lit, just before we
+// power it off, so the frame it retains (and wakes onto) is blank rather than
+// the last screen we were showing
+void clearScreen() {
+#ifdef DISPLAY_RM67162
+  g_frame.fillSprite(theme.bg_color);
+  lcd_PushColors(0, 0, screenWidth, screenHeight, (uint16_t*)g_frame.getPointer());
+#else
+  tft.fillScreen(theme.bg_color);
+#endif
+}
+
 // blank the panel when the machine sleeps
 void displayPanelOff() {
 #ifdef M5_STICK
@@ -806,7 +818,7 @@ void loop() {
 
   // owns panel power and the render-vs-power ordering; fed the board's paint and
   // power ops. rendering happens through this at the end of each tick
-  controller::DisplayController displayController({renderScreens, displayPanelOn, displayPanelOff});
+  controller::DisplayController displayController({renderScreens, clearScreen, displayPanelOn, displayPanelOff});
 
   while (true) {
     while (xQueueReceive(updateQ, (void*)&d, 0) == pdTRUE) {

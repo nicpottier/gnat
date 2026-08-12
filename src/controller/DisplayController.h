@@ -8,15 +8,18 @@ namespace controller {
 // sequencing can be exercised off-device in tests
 struct DisplayOps {
   std::function<void()> render;    // paint every screen and push the frame
-  std::function<void()> powerOn;   // light the panel (frame must already be pushed)
+  std::function<void()> clear;     // push a blank frame (while the panel is lit)
+  std::function<void()> powerOn;   // light the panel
   std::function<void()> powerOff;  // blank the panel
 };
 
-// owns the panel power state and, crucially, the order of render vs power. the
-// invariant that keeps wake clean: when leaving sleep we render the new frame
-// BEFORE lighting the panel, so it never flashes the stale pre-sleep frame.
-// this runs in the render phase of the loop, after all screen/state logic, so
-// the frame it paints reflects every decision made this tick.
+// owns the panel power state and the order of clear / render vs power. the
+// panel retains its last frame across sleep and ignores frame writes while
+// asleep, so it comes back up showing whatever it slept with. to avoid
+// flashing the pre-sleep screen on wake we blank the frame while the panel is
+// still lit, just before powering off; the panel then wakes onto a blank frame
+// and we paint the real one (the splash) immediately after. runs in the render
+// phase of the loop, after all screen/state logic.
 class DisplayController {
  public:
   explicit DisplayController(DisplayOps ops)
@@ -25,20 +28,22 @@ class DisplayController {
   // justSlept / justWoke are the machine sleep<->wake edges for this tick
   void render(bool justSlept, bool justWoke) {
     if (justSlept) {
+      // blank the retained frame while we can still write it, then power off
+      m_ops.clear();
       m_ops.powerOff();
       m_on = false;
       return;
     }
 
-    // render whenever the panel is lit, or is about to be this tick
-    if (m_on || justWoke) {
-      m_ops.render();
-    }
-
-    // light the panel only after the fresh frame is in place
+    // light the panel first (it comes up on the blank frame from sleep), then
+    // paint the real frame over it
     if (justWoke && !m_on) {
       m_ops.powerOn();
       m_on = true;
+    }
+
+    if (m_on) {
+      m_ops.render();
     }
   }
 

@@ -1,9 +1,11 @@
-// unit test for DisplayController's render-vs-power sequencing. the property
-// that keeps wake clean is that on a wake edge the frame is rendered BEFORE the
-// panel is powered on, so it never lights up on the stale pre-sleep frame.
+// unit test for DisplayController's clear/render-vs-power sequencing. the panel
+// retains its last frame across sleep and ignores writes while asleep, so the
+// property that keeps wake clean is: on sleep we blank the frame BEFORE
+// powering off, and on wake we power on (onto that blank frame) before painting
+// the real one. that way the panel never shows the stale pre-sleep screen.
 //
-// records the order of the injected ops as a string: R render, + power on,
-// - power off.
+// records the order of the injected ops as a string: R render, C clear,
+// + power on, - power off.
 
 #include <cstdio>
 #include <string>
@@ -15,6 +17,7 @@ static std::string calls;
 static controller::DisplayController make() {
   return controller::DisplayController({
       [] { calls += 'R'; },
+      [] { calls += 'C'; },
       [] { calls += '+'; },
       [] { calls += '-'; },
   });
@@ -36,32 +39,33 @@ int main() {
     expect("awake steady renders", calls, "R");
   }
 
-  // going to sleep blanks the panel and does not render
+  // going to sleep blanks the frame BEFORE powering off, and does not render
   {
     auto d = make();
     calls.clear();
     d.render(true, false);
-    expect("sleep powers off, no render", calls, "-");
+    expect("sleep clears then powers off", calls, "C-");
     // and while asleep, nothing happens
     calls.clear();
     d.render(false, false);
     expect("asleep steady does nothing", calls, "");
   }
 
-  // waking renders the fresh frame, THEN lights the panel
+  // waking powers on (onto the blanked frame) THEN paints the real frame
   {
     auto d = make();
     d.render(true, false);  // sleep first
     calls.clear();
     d.render(false, true);  // wake
-    expect("wake renders before power on", calls, "R+");
+    expect("wake powers on before rendering", calls, "+R");
     if (!d.isOn()) {
       printf("  %-46s FAIL (panel not on after wake)\n", "panel on after wake");
       failures++;
     }
   }
 
-  // a full cycle: boot render, sleep, asleep, wake, awake render
+  // a full cycle: boot render, sleep (clear+off), asleep, wake (on+render),
+  // awake render — the panel is never lit while holding the stale frame
   {
     auto d = make();
     calls.clear();
@@ -70,7 +74,7 @@ int main() {
     d.render(false, false);  // asleep
     d.render(false, true);   // wake
     d.render(false, false);  // awake again
-    expect("full sleep/wake cycle order", calls, "R-R+R");
+    expect("full sleep/wake cycle order", calls, "RC-+RR");
   }
 
   printf("\n%s (%d failure(s))\n", failures ? "FAILED" : "PASSED", failures);
