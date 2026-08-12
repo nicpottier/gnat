@@ -165,9 +165,29 @@ class DE1 : public Device, public Machine {
   }
 
   void stateUpdate(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* d, size_t length, bool isNotify) {
-    int state = d[0];
-    int subState = d[1];
-    queueUpdate(data::DataUpdate::newMachineStateUpdate((MachineState)state, (MachineSubstate)subState));
+    queueState((MachineState)d[0], (MachineSubstate)d[1]);
+  }
+
+  // re-read the state characteristic and queue it if it changed since we last
+  // saw it. state notifications are unacknowledged, so an occasional dropped
+  // packet can leave us on a stale state; polling this from the ble loop lets
+  // a missed change (most visibly a missed wake) recover within a poll or two.
+  // safe to call when disconnected: m_stateChar is cleared on teardown
+  bool refreshState() {
+    if (!m_stateChar) {
+      return false;
+    }
+    auto value = m_stateChar->readValue();
+    if (value.length() != 2) {
+      return false;
+    }
+    auto state = (MachineState)value.data()[0];
+    auto subState = (MachineSubstate)value.data()[1];
+    if (state == m_lastState && subState == m_lastSubstate) {
+      return false;
+    }
+    queueState(state, subState);
+    return true;
   }
 
   void sampleUpdate(NimBLERemoteCharacteristic* pRemoteCharacteristic, uint8_t* d, size_t length, bool isNotify) {
@@ -266,9 +286,7 @@ class DE1 : public Device, public Machine {
               continue;
             }
 
-            int state = value.data()[0];
-            int subState = value.data()[1];
-            queueUpdate(data::DataUpdate::newMachineStateUpdate((MachineState)state, (MachineSubstate)subState));
+            queueState((MachineState)value.data()[0], (MachineSubstate)value.data()[1]);
 
             m_stateChar = ch;
           }
@@ -334,6 +352,11 @@ class DE1 : public Device, public Machine {
     m_frameChar = nullptr;
     m_mmrChar = nullptr;
     m_settingsChar = nullptr;
+    // clear the state char so a poll can't read through a stale pointer, and
+    // forget the last state so the next connection re-surfaces it
+    m_stateChar = nullptr;
+    m_lastState = MachineState::unknown;
+    m_lastSubstate = MachineSubstate::unknown;
   }
 
   void selfRegister(Devices* devices) {
@@ -349,6 +372,14 @@ class DE1 : public Device, public Machine {
   }
 
  private:
+  // record the state we're surfacing so refreshState can tell a real change
+  // from a redundant re-read, then hand it to the ui queue
+  void queueState(MachineState state, MachineSubstate subState) {
+    m_lastState = state;
+    m_lastSubstate = subState;
+    queueUpdate(data::DataUpdate::newMachineStateUpdate(state, subState));
+  }
+
   bool writeRefillLevel() {
     // write is {level, threshold} as big-endian U16P8 values, level is ignored on write
     uint8_t levels[] = {0, 0, m_refillLevelMm, 0};
@@ -415,6 +446,11 @@ class DE1 : public Device, public Machine {
   NimBLERemoteCharacteristic* m_headerChar = nullptr;
   NimBLERemoteCharacteristic* m_frameChar = nullptr;
   NimBLERemoteCharacteristic* m_mmrChar = nullptr;
+
+  // the last machine state we surfaced, tracked so periodic state polling
+  // only re-queues genuine changes
+  MachineState m_lastState = MachineState::unknown;
+  MachineSubstate m_lastSubstate = MachineSubstate::unknown;
 
   uint8_t m_refillLevelMm = de1_default_refill_level_mm;
   int m_profileIdx = 0;
