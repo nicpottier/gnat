@@ -226,6 +226,19 @@ void bleLoop(void* parameters) {
       pBLEScan->start(0, nullptr, false);
     }
 
+    // machine state notifications are unacknowledged, so a dropped packet can
+    // strand us on a stale state, most visibly a missed wake that leaves the
+    // display asleep. re-read the state periodically so a lost notification
+    // heals within a second; refreshState only re-queues genuine changes
+    static unsigned long lastStatePoll = 0;
+    if (millis() - lastStatePoll > 1000) {
+      lastStatePoll = millis();
+      auto machine = devices->getMachine();
+      if (machine) {
+        machine->refreshState();
+      }
+    }
+
     // sleep a few cycles to reset the watchdog
     vTaskDelay(40);
   }
