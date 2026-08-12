@@ -29,17 +29,25 @@ build/main_host.o: host/main_host.cpp Makefile $(wildcard shim/*.h shim/*/*.h) |
 build:
 	mkdir -p build
 
-# tests. the wake test runs the real firmware loop headless against the shims
-# to confirm the sleep/wake logic recovers the display across screens. no sdl2
-# needed, so `make test` works without it.
+# tests. the driver test compiles the real rm67162 driver against a fake SPI
+# bus (no SDL) and checks the wake path re-lights the panel; the wake test
+# runs the real firmware loop headless against the shims to confirm the
+# sleep/wake logic recovers the display across screens. neither needs sdl2, so
+# `make test` works without it.
 TEST_FLAGS = -std=c++17 -O0 -g -Wall -Wno-unused-variable -Wno-sign-compare $(DEFINES)
+
+build/rm67162_wake_test: test/rm67162_wake_test.cpp ../src/amoled/rm67162.cpp Makefile \
+                         $(wildcard test/fakes/*.h test/fakes/*/*.h) | build
+	$(CXX) $(TEST_FLAGS) -DLCD_USB_QSPI_DREVER=1 -Itest/fakes -I../src/amoled \
+	    test/rm67162_wake_test.cpp ../src/amoled/rm67162.cpp -o $@
 
 build/wake_test: test/wake_test.cpp ../src/main.cpp shim/emu_bridge.cpp Makefile \
                  $(wildcard shim/*.h shim/*/*.h) | build
 	$(CXX) $(TEST_FLAGS) -Ishim -I../src \
 	    test/wake_test.cpp ../src/main.cpp shim/emu_bridge.cpp -o $@
 
-test: build/wake_test
+test: build/rm67162_wake_test build/wake_test
+	@echo "== rm67162 driver wake =="; ./build/rm67162_wake_test
 	@echo "== firmware loop sleep/wake ==";  ./build/wake_test >/dev/null && echo "PASSED" || (./build/wake_test; false)
 
 clean:
