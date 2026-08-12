@@ -122,6 +122,34 @@ static void lcd_send_cmd(uint32_t cmd, uint8_t *dat, uint32_t len)
 #endif
 }
 
+// send the panel's display-setup command sequence (sleep out, pixel format,
+// brightness, display on) over the already-initialized bus. run a few times
+// because the panel occasionally drops a command right after power up. this is
+// the part of init that actually makes the panel show pixels, split out so
+// wake can re-assert it without the destructive power cycle / bus re-init that
+// a full re-init would do (which leaves the qspi pins unroutable).
+static void lcd_write_setup(void)
+{
+    int n = 3;
+    while (n--) {
+#if LCD_USB_QSPI_DREVER == 1
+        const lcd_cmd_t *lcd_init = rm67162_qspi_init;
+        for (int i = 0; i < sizeof(rm67162_qspi_init) / sizeof(lcd_cmd_t); i++)
+#else
+        const lcd_cmd_t *lcd_init = rm67162_spi_init;
+        for (int i = 0; i < sizeof(rm67162_spi_init) / sizeof(lcd_cmd_t); i++)
+#endif
+        {
+            lcd_send_cmd(lcd_init[i].cmd,
+                         (uint8_t *)lcd_init[i].data,
+                         lcd_init[i].len & 0x7f);
+
+            if (lcd_init[i].len & 0x80)
+                delay(120);
+        }
+    }
+}
+
 void rm67162_init(void)
 {
     // fully power cycle the panel, warm resets can leave it latched in a bad
@@ -191,26 +219,8 @@ void rm67162_init(void)
     SPI.setFrequency(SPI_FREQUENCY);
     pinMode(TFT_DC, OUTPUT);
 #endif
-    // Initialize the screen multiple times to prevent initialization failure
-    int i = 3;
-    while (i--) {
-#if LCD_USB_QSPI_DREVER == 1
-        const lcd_cmd_t *lcd_init = rm67162_qspi_init;
-        for (int i = 0; i < sizeof(rm67162_qspi_init) / sizeof(lcd_cmd_t); i++)
-#else
-        const lcd_cmd_t *lcd_init = rm67162_spi_init;
-        for (int i = 0; i < sizeof(rm67162_spi_init) / sizeof(lcd_cmd_t); i++)
-#endif
-        {
-            lcd_send_cmd(lcd_init[i].cmd,
-                         (uint8_t *)lcd_init[i].data,
-                         lcd_init[i].len & 0x7f);
-
-            if (lcd_init[i].len & 0x80)
-                delay(120);
-        }
-    }
-
+    // bring the panel up to a displaying state
+    lcd_write_setup();
 }
 
 void lcd_setRotation(uint8_t r)
@@ -376,13 +386,13 @@ void lcd_sleep()
     lcd_send_cmd(0x10, NULL, 0);
 }
 
-// wake from lcd_sleep, the panel keeps its config so sleep out and
-// display on are all it needs
+// wake from lcd_sleep. bare sleep out + display on is not enough: right after
+// a boot power cycle the panel can come back without its pixel format or
+// brightness, so it wakes but stays dark. re-assert the full display setup
+// (over the existing bus, no power cycle) so it reliably lights back up.
 void lcd_wake()
 {
-    lcd_send_cmd(0x11, NULL, 0);
-    delay(120);
-    lcd_send_cmd(0x29, NULL, 0);
+    lcd_write_setup();
 }
 
 #endif  // DISPLAY_RM67162
