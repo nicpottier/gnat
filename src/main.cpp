@@ -4,6 +4,7 @@
 #include <Command.h>
 #include <Config.h>
 #include <Data.h>
+#include <controller/DisplayController.h>
 
 #ifdef M5_STICK
 #include <M5StickCPlus.h>
@@ -120,6 +121,77 @@ void backlightOff() {
 #endif
 
 auto g_ctx = data::Context{};
+
+// paint every screen for the current context and push the frame to the panel.
+// the DisplayController calls this as its render op in the loop's render phase
+void renderScreens() {
+#ifdef DISPLAY_RM67162
+  TFT_eSPI& gfx = g_frame;
+#else
+  TFT_eSPI& gfx = tft;
+#endif
+  bool painted = s_brewScreen->tickAndPaint(g_ctx, gfx);
+  painted |= s_connectScreen->tickAndPaint(g_ctx, gfx);
+  painted |= s_configScreen->tickAndPaint(g_ctx, gfx);
+  painted |= s_feedbackScreen->tickAndPaint(g_ctx, gfx);
+  painted |= s_adjustScreen->tickAndPaint(g_ctx, gfx);
+  painted |= s_splashScreen->tickAndPaint(g_ctx, gfx);
+  painted |= s_pourScreen->tickAndPaint(g_ctx, gfx);
+
+#ifdef DISPLAY_RM67162
+  // push our frame to the panel when anything changed
+  if (painted) {
+    lcd_PushColors(0, 0, screenWidth, screenHeight, (uint16_t*)g_frame.getPointer());
+  }
+#endif
+}
+
+// push a blank frame. called while the panel is still lit, just before we
+// power it off, so the frame it retains (and wakes onto) is blank rather than
+// the last screen we were showing
+void clearScreen() {
+#ifdef DISPLAY_RM67162
+  g_frame.fillSprite(theme.bg_color);
+  lcd_PushColors(0, 0, screenWidth, screenHeight, (uint16_t*)g_frame.getPointer());
+#else
+  tft.fillScreen(theme.bg_color);
+#endif
+}
+
+// blank the panel when the machine sleeps
+void displayPanelOff() {
+#ifdef M5_STICK
+  M5.Axp.ScreenSwitch(false);
+#endif
+#ifdef TTGO
+  backlightOff();
+  tft.writecommand(ST7789_DISPOFF);
+#endif
+#ifdef ESP32_2432S028R
+  digitalWrite(TFT_BL, LOW);
+#endif
+#ifdef DISPLAY_RM67162
+  lcd_sleep();
+#endif
+}
+
+// light the panel back up; the fresh frame has already been pushed by the time
+// this runs, so the panel comes on showing it rather than the stale one
+void displayPanelOn() {
+#ifdef M5_STICK
+  M5.Axp.ScreenSwitch(true);
+#endif
+#ifdef TTGO
+  backlightOn();
+  tft.writecommand(ST7789_DISPON);
+#endif
+#ifdef ESP32_2432S028R
+  digitalWrite(TFT_BL, HIGH);
+#endif
+#ifdef DISPLAY_RM67162
+  lcd_wake();
+#endif
+}
 
 // a shot log we serve at /shots so stops can be audited without a computer
 struct ShotLogEntry {
@@ -744,6 +816,10 @@ void loop() {
   // when the group pour was armed, for the arm timeout
   unsigned long waterArmedMs = 0;
 
+  // owns panel power and the render-vs-power ordering; fed the board's paint and
+  // power ops. rendering happens through this at the end of each tick
+  controller::DisplayController displayController({renderScreens, clearScreen, displayPanelOn, displayPanelOff});
+
   while (true) {
     while (xQueueReceive(updateQ, (void*)&d, 0) == pdTRUE) {
       d.apply(&g_ctx);
@@ -751,79 +827,26 @@ void loop() {
 
     // ready for our next tick?
     if (millis() > nextTick) {
-      // paint all our screens
-#ifdef DISPLAY_RM67162
-      TFT_eSPI& gfx = g_frame;
-#else
-      TFT_eSPI& gfx = tft;
-#endif
-      bool painted = s_brewScreen->tickAndPaint(g_ctx, gfx);
-      painted |= s_connectScreen->tickAndPaint(g_ctx, gfx);
-      painted |= s_configScreen->tickAndPaint(g_ctx, gfx);
-      painted |= s_feedbackScreen->tickAndPaint(g_ctx, gfx);
-      painted |= s_adjustScreen->tickAndPaint(g_ctx, gfx);
-      painted |= s_splashScreen->tickAndPaint(g_ctx, gfx);
-      painted |= s_pourScreen->tickAndPaint(g_ctx, gfx);
+      // the machine's sleep <-> wake edges for this tick. the panel power and
+      // the repaint happen together in the render phase at the end of the tick
+      // (displayController.render below), so all the screen decisions made this
+      // tick are on screen at once and waking never flashes a stale frame
+      bool justSlept = g_ctx.machineState == MachineState::sleep && lastState != MachineState::sleep;
+      bool justWoke = lastState == MachineState::sleep && g_ctx.machineState != MachineState::sleep;
 
-#ifdef DISPLAY_RM67162
-      // push our frame to the panel when anything changed
-      if (painted) {
-        lcd_PushColors(0, 0, screenWidth, screenHeight, (uint16_t*)g_frame.getPointer());
-      }
-#endif
-
-      // we just went to sleep, turn off the screen
-      if (g_ctx.machineState == MachineState::sleep && lastState != g_ctx.machineState) {
-#ifdef M5_STICK
-        M5.Axp.ScreenSwitch(false);
-#endif
-#ifdef TTGO
-        backlightOff();
-        tft.writecommand(ST7789_DISPOFF);
-#endif
-#ifdef ESP32_2432S028R
-        digitalWrite(TFT_BL, LOW);
-#endif
-#ifdef DISPLAY_RM67162
-        lcd_sleep();
-#endif
-
-        // send a sleep command to our BLE devices
+      // let our BLE devices sleep too
+      if (justSlept) {
         auto sleep = cmd::CommandRequest::newSleepCommand();
         xQueueSend(cmdQ, &sleep, 10);
       }
 
-      // just left sleep, turn on screen
-      if ((lastState == MachineState::sleep || lastState == MachineState::unknown) &&
-          g_ctx.machineState != MachineState::sleep) {
-#ifdef M5_STICK
-        M5.Axp.ScreenSwitch(true);
-#endif
-#ifdef TTGO
-        backlightOn();
-        tft.writecommand(ST7789_DISPON);
-#endif
-#ifdef ESP32_2432S028R
-        digitalWrite(TFT_BL, HIGH);
-#endif
-#ifdef DISPLAY_RM67162
-        // wake the panel and restore our frame, but only when we actually
-        // slept, this branch also fires on boot with lastState still unknown
-        if (lastState == MachineState::sleep) {
-          lcd_wake();
-          lcd_PushColors(0, 0, screenWidth, screenHeight, (uint16_t*)g_frame.getPointer());
-        }
-#endif
+      // greet the user with the splash on wake; the render phase paints it
+      // before the panel lights back up
+      if (justWoke) {
         idleStart = millis();
+        g_ctx.screen = ScreenID::splash;
+        splashStart = millis();
 
-        // waking from real sleep greets the user with our splash, boot rides
-        // through this branch too but already showed it
-        if (lastState == MachineState::sleep) {
-          g_ctx.screen = ScreenID::splash;
-          splashStart = millis();
-        }
-
-        // send a wake command to our BLE devices
         auto wake = cmd::CommandRequest::newWakeCommand();
         xQueueSend(cmdQ, &wake, 10);
       }
@@ -1347,6 +1370,11 @@ void loop() {
       } else if (g_ctx.screen == ScreenID::brew || g_ctx.screen == ScreenID::pour) {
         stopAP();
       }
+
+      // render phase: now that every screen decision for this tick is settled,
+      // paint the frame and drive the panel power. on wake this paints the
+      // splash before lighting the panel; going to sleep it just blanks it
+      displayController.render(justSlept, justWoke);
 
       lastScreen = g_ctx.screen;
       lastState = g_ctx.machineState;
