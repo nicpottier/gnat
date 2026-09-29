@@ -281,6 +281,9 @@ class AdjustFields : public Widget {
     if (page.icon) {
       page.icon(tft, startX + px(17), bandH / 2, page.headerTextColor, page.headerBgColor);
     }
+    // draw the title without a background, the band is already filled and the
+    // font's full box (sized for its deepest descender) is taller than the band
+    tft.setTextColor(page.headerTextColor);
     tft.setTextDatum(ML_DATUM);
     tft.drawString(page.title, startX + iconW, bandH / 2);
 

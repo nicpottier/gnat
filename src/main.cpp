@@ -16,9 +16,16 @@
 #include <amoled/rm67162.h>
 #endif
 
-#ifdef TOUCH_CST816
+#if defined(TOUCH_CST816)
 #include <touch/CST816.h>
 CST816 g_touch;
+#elif defined(TOUCH_CST226)
+#include <touch/CST226.h>
+CST226 g_touch;
+#endif
+
+#if defined(TOUCH_CST816) || defined(TOUCH_CST226)
+#define HAS_TOUCH 1
 bool g_touchWasDown = false;
 bool g_touchCircle = false;
 int g_touchStartX = 0;
@@ -170,6 +177,10 @@ void displayPanelOff() {
 #ifdef ESP32_2432S028R
   digitalWrite(TFT_BL, LOW);
 #endif
+#ifdef TDISPLAY_S3_PRO
+  backlightOff();
+  tft.writecommand(TFT_DISPOFF);
+#endif
 #ifdef DISPLAY_RM67162
   lcd_sleep();
 #endif
@@ -187,6 +198,10 @@ void displayPanelOn() {
 #endif
 #ifdef ESP32_2432S028R
   digitalWrite(TFT_BL, HIGH);
+#endif
+#ifdef TDISPLAY_S3_PRO
+  backlightOn();
+  tft.writecommand(TFT_DISPON);
 #endif
 #ifdef DISPLAY_RM67162
   lcd_wake();
@@ -692,6 +707,14 @@ void setup() {
   ledcAttachPin(TFT_BL, BACKLIGHT_PWM_CHANNEL);
 #endif
   backlightOn();
+
+#ifdef TOUCH_CST226
+  if (g_touch.begin(TOUCH_SDA_PIN, TOUCH_SCL_PIN, TOUCH_RST_PIN)) {
+    Serial.println("[TOUCH] controller found");
+  } else {
+    Serial.println("[TOUCH] controller NOT found");
+  }
+#endif
 #endif
 
 #ifdef COMBO_BUTTON_PIN
@@ -1146,19 +1169,26 @@ void loop() {
         }
       }
 
-#ifdef TOUCH_CST816
+#ifdef HAS_TOUCH
       // poll the touch controller, tracking presses so we can tell taps from
       // swipes when the finger lifts
       int touchX, touchY;
       bool touchDown = g_touch.read(touchX, touchY);
 
       if (touchDown) {
+#ifdef TOUCH_CST816
         // the round capacitive button reports out past the panel
         bool circle = touchX >= 560;
 
         // map the controller's coordinates into our ui space
         int ux = screenWidth - 1 - touchX;
         int uy = screenHeight - 1 - touchY;
+#else
+        // no home button, the controller reports portrait panel coordinates
+        bool circle = false;
+        int ux = screenWidth - 1 - touchY;
+        int uy = touchX;
+#endif
         if (g_ctx.config.isFlipped()) {
           ux = screenWidth - 1 - ux;
           uy = screenHeight - 1 - uy;
